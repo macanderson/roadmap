@@ -2067,9 +2067,74 @@
    },
    {
     "id": "steering",
-    "title": "Steering",
+    "title": "Steering · Records",
     "group": "Workspace",
-    "hash": "#/a-intel/core-platform/steering",
+    "hash": "#/a-intel/core-platform/steering/records",
+    "states": [
+     "loaded",
+     "empty",
+     "loading",
+     "error",
+     "denied"
+    ]
+   },
+   {
+    "id": "steering-memory",
+    "title": "Steering · Memory",
+    "group": "Workspace",
+    "hash": "#/a-intel/core-platform/steering/memory",
+    "states": [
+     "loaded",
+     "empty",
+     "loading",
+     "error",
+     "denied"
+    ]
+   },
+   {
+    "id": "steering-ontology",
+    "title": "Steering · Ontology",
+    "group": "Workspace",
+    "hash": "#/a-intel/core-platform/steering/ontology",
+    "states": [
+     "loaded",
+     "empty",
+     "loading",
+     "error",
+     "denied"
+    ]
+   },
+   {
+    "id": "steering-policy",
+    "title": "Steering · Policy",
+    "group": "Workspace",
+    "hash": "#/a-intel/core-platform/steering/policy",
+    "states": [
+     "loaded",
+     "empty",
+     "loading",
+     "error",
+     "denied"
+    ]
+   },
+   {
+    "id": "steering-proposals",
+    "title": "Steering · Proposals",
+    "group": "Workspace",
+    "hash": "#/a-intel/core-platform/steering/proposals",
+    "states": [
+     "loaded",
+     "empty",
+     "loading",
+     "error",
+     "denied"
+    ]
+   },
+   {
+    "id": "steering-preview",
+    "title": "Steering · Preview",
+    "group": "Workspace",
+    "hash": "#/a-intel/core-platform/steering/preview/release-manager",
     "states": [
      "loaded",
      "empty",
@@ -2118,9 +2183,9 @@
    },
    {
     "id": "skills",
-    "title": "Skills",
+    "title": "Steering · Skills",
     "group": "Workspace",
-    "hash": "#/a-intel/core-platform/skills",
+    "hash": "#/a-intel/core-platform/steering/skills",
     "states": [
      "loaded",
      "empty",
@@ -2131,9 +2196,9 @@
    },
    {
     "id": "skills-off",
-    "title": "Skills · off (the default)",
+    "title": "Steering · Skills · off (the default)",
     "group": "Workspace",
-    "hash": "#/a-intel/finops/skills",
+    "hash": "#/a-intel/finops/steering/skills",
     "states": [
      "loaded"
     ]
@@ -2142,7 +2207,7 @@
     "id": "skill-source",
     "title": "Skill source",
     "group": "Workspace",
-    "hash": "#/a-intel/core-platform/skills/a-intel.release-notes-from-prs/source",
+    "hash": "#/a-intel/core-platform/steering/skills/a-intel.release-notes-from-prs/source",
     "states": [
      "loaded",
      "loading",
