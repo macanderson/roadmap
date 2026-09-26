@@ -597,7 +597,8 @@ migration. It changes no behavior.
 
 Read first
 - steering-repo-spec.html: Shared contract, Repository layout, File formats,
-  Record changes, Tool servers, Agents, Memory (reflection/v1), Scale.
+  Record changes, Tool servers, Agents, Memory (Memory author, reflection/v1),
+  Scale.
 - oxagen-steering-record-spec.html: the v1 frontmatter and JSON Schema.
 - packages/oxagen/src/contracts/context.steering.shared.ts and
   context.steering.file.ts: today&#x27;s zod schemas.
@@ -622,8 +623,9 @@ Do
    code checkout.
 2. Zod schemas and TypeScript types for workspace/v1 (with the optional
    [embeddings] table MCP Studio specifies), governance/v1,
-   agent/v1, toolbelt/v1, reflection/v1, promotion/v1, bundle/v1, repo health, and the four new
-   steering-record/v1 fields (repos, tools, skills, and description on every kind).
+   agent/v1, toolbelt/v1, reflection/v1, memory/v1, promotion/v1, bundle/v1, repo health, the four new
+   steering-record/v1 fields (repos, tools, skills, and description on every kind), and
+   provenance.agent, required when provenance.source is run.
 3. A generator that writes each schema as JSON Schema to
    packages/oxagen/schemas/&lt;id&gt;.json with $id https://oxagen.sh/schemas/&lt;id&gt;.json.
 4. The settings baseline as data: settings-baseline.ts with the GitHub and
@@ -1153,7 +1155,8 @@ You own
 Do
 1. Decide the store for memories and reflections (Postgres beside today&#x27;s
    Neo4j nodes, or Neo4j) and record the choice in an ADR in the PR.
-2. remember writes a memory with evidence frames. reflect stores a
+2. remember writes a memory/v1 with evidence frames. Oxagen sets its agent
+   and run from the authenticated run, never from the tool input. reflect stores a
    reflection/v1: a memory with grades for the work and the tools. Show tool
    grades to the server&#x27;s owner. They never steer anything.
 3. Claude Code: the Stop hook blocks the first stop once, only when the run
@@ -1164,7 +1167,8 @@ Do
    merge duplicates, drop what an active record says, and open one
    memory/&lt;date&gt; PR through S3&#x27;s open path with at most batch_size
    files, sharded by repository and area. A kept item lands as a memory under
-   steering/memory/, or as a rule or a fact where that fits better.
+   steering/memory/, or as a rule or a fact where that fits better. Each
+   promoted file carries the memory&#x27;s agent in provenance.agent.
 5. Dropping a memory in review records a rejection. The curator does not
    propose it again without new evidence.
 6. recall(request): up to 5 memories, 800 tokens at most, within scope, by

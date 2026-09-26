@@ -341,7 +341,8 @@ dialog.exdlg::backdrop{background:rgba(0,0,0,.55)}
     <li><span class="st d">Decided</span> <strong>Pull requests stay the only way in.</strong> A change to configuration or steering takes effect only through a merged pull request.</li>
     <li><span class="st d">Decided</span> <strong>A new name.</strong> The main repository becomes the <strong>steering repo</strong>, to match steering records and the steering PR.</li>
     <li><span class="st d">Decided</span> <strong>New folders.</strong> <code>tools/servers/</code> for every MCP server and its imported tools, <code>policy/</code>, and <code>steering/memory/</code>, and <code>proposals/</code> goes.</li>
-    <li><span class="st d">Decided</span> <strong>Three new record fields</strong> (<code>repos</code>, <code>tools</code>, and <code>description</code> on every kind), and an optional token budget on always-on records. A workspace that sets no budget inherits Oxagen's default.</li>
+    <li><span class="st d">Decided</span> <strong>Four new record fields</strong> (<code>repos</code>, <code>tools</code>, <code>skills</code>, and <code>description</code> on every kind), and an optional token budget on always-on records. A workspace that sets no budget inherits Oxagen's default.</li>
+    <li><span class="st p">Proposed</span> <strong>Every memory names its author.</strong> A stored memory records the agent and run that wrote it, and a promoted memory keeps the agent in <code>provenance.agent</code>.</li>
   </ul>
 </section>
 
@@ -418,6 +419,7 @@ dialog.exdlg::backdrop{background:rgba(0,0,0,.55)}
       <h4><span class="st p">Proposed</span></h4>
       <ul>
         <li>The details below that no Decided item names: the settings table beyond the required check, the build lanes, the Cedar policy on a subagent's skill, the @mention syntax, and function tools.</li>
+        <li>Every memory records the agent and run that wrote it, in <code>memory/v1</code> and in a promoted record's <code>provenance.agent</code>. A memory with no known agent steers nothing until a person reviews it.</li>
       </ul>
     </div>
   </div>
@@ -558,7 +560,7 @@ dialog.exdlg::backdrop{background:rgba(0,0,0,.55)}
 <section id="records">
   <span class="eyebrow">Records</span>
   <h2>Record changes</h2>
-  <p>Four fields join the v1 frontmatter before v1 ships, so the schema stays <code>steering-record/v1</code>. Targets combine: a record reaches a model request only when every target it names matches. <span class="st d">Decided</span></p>
+  <p>Four fields join the v1 frontmatter, and <code>provenance</code> gains <code>agent</code>, before v1 ships, so the schema stays <code>steering-record/v1</code>. Targets combine: a record reaches a model request only when every target it names matches. <span class="st d">Decided</span></p>
   <div class="tscroll"><table>
     <thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Rule</th></tr></thead>
     <tbody>
@@ -567,6 +569,7 @@ dialog.exdlg::backdrop{background:rgba(0,0,0,.55)}
       <tr><td><code>skills</code></td><td>list</td><td>no</td><td class="wrap">Skill lineages, such as <code>a-intel.platform.code-reviewer</code>. The record reaches a request only when the request's <code>context.skill</code> is on the list, so a request that names no skill gets none of these records. A record cannot target a named agent. See <a href="#subagents">Subagents</a>. <span class="st d">Decided</span> (Mac, 2026-09-26)</td></tr>
       <tr><td><code>toolbelt</code></td><td>string</td><td>no</td><td class="wrap">Skills only, and later, with named toolbelts. Day one, a Cedar policy on the skill limits a subagent. See <a href="#subagents">Subagents</a>.</td></tr>
       <tr><td><code>description</code></td><td>string</td><td>skills</td><td class="wrap">Allowed on every kind. One sentence, at most 200 characters, or 1,024 for a skill. It becomes the record's line in the index an agent reads before it asks for a body.</td></tr>
+      <tr><td><code>provenance.agent</code></td><td>string</td><td>when <code>provenance.source</code> is <code>run</code></td><td class="wrap">The agent that wrote the memory or lesson, named by the lineage its <code>agents/&lt;name&gt;.toml</code> file gives it, such as <code>a-intel.core.release-manager</code>. The curator copies it from the stored memory. It stays in the file because digest-only retention can delete the run that <code>uri</code> points to. When the curator merges memories from several agents, it keeps the agent of the memory whose frame is <code>uri</code>. See <a href="#memory-author">Memory author</a>. <span class="st p">Proposed</span></td></tr>
     </tbody>
   </table></div>
   <figure class="code"><figcaption><span class="path">steering/billing/a-intel.billing.refunds-over-100.md</span><button type="button" class="copy">Copy</button></figcaption><pre><code data-lang="md">---
@@ -675,6 +678,7 @@ origin: inferred
 provenance:
   source: run
   uri: frame:run_01K5R8QZ/412
+  agent: a-intel.core.ci-reviewer
 ---
 
 Every query that reads or writes a tenant table goes through
@@ -822,6 +826,7 @@ origin: inferred
 provenance:
   source: run
   uri: frame:run_01K5QK7D/88
+  agent: a-intel.core.release-manager
 ---
 
 The CI cache key hashes `pnpm-lock.yaml`. A run that changes dependencies
@@ -1262,13 +1267,37 @@ and selects Repair settings. Or restore both rulesets by hand.</code></pre></fig
   <h3>Lifecycle</h3>
   <ol class="steps">
     <li><div><strong>Observe.</strong><p>A frame in the run shows something worth keeping: a failed tool call, a person's correction, a retry loop, or a policy denial.</p></div></li>
-    <li><div><strong>Capture.</strong><p>The agent calls <code>remember</code> during the run, or writes a reflection at the end. Both are memories, stored in Oxagen with the frame as evidence. Memories agents write elsewhere arrive too: the code repository check finds them in pull requests, and the local gateway reads each harness's memory locations on the machine.</p></div></li>
+    <li><div><strong>Capture.</strong><p>The agent calls <code>remember</code> during the run, or writes a reflection at the end. Both are memories, stored in Oxagen with the frame as evidence and with the agent and run that wrote them. Memories agents write elsewhere arrive too: the code repository check finds them in pull requests, and the local gateway reads each harness's memory locations on the machine.</p></div></li>
     <li><div><strong>Propose.</strong><p>Once a day, or when 20 memories wait, the curator keeps what is worth keeping, merges duplicates, drops what an active record already says, and opens one memory PR on a <code>memory/&lt;date&gt;</code> branch. A kept item lands as a memory, or as a rule or a fact when that fits better. Most memories never reach a PR.</p></div></li>
     <li><div><strong>Review.</strong><p>A reviewer merges the PR or drops single memories from it. Oxagen pushes a commit that removes a dropped file and records the rejection, so the same lesson returns only with new evidence.</p></div></li>
-    <li><div><strong>Publish.</strong><p>A merged memory is a steering record of kind <code>memory</code> under <code>steering/memory/</code>, recalled for every agent it targets.</p></div></li>
+    <li><div><strong>Publish.</strong><p>A merged memory is a steering record of kind <code>memory</code> under <code>steering/memory/</code>. Recall can add it to any request its <code>repos</code>, <code>tools</code>, <code>skills</code>, and <code>applies_to</code> fields match, whichever agent sends it.</p></div></li>
     <li><div><strong>Recall.</strong><p>The cloud gateway adds up to five relevant memories to a request, 800 tokens at most, and lists them in the request's manifest.</p></div></li>
     <li><div><strong>Retire.</strong><p>Oxagen counts each memory's recalls and outcomes in its database, never in the file. A memory a reflection contradicts, or that no run recalled in 180 days, is proposed for archiving in the next memory PR.</p></div></li>
   </ol>
+
+  <h3 id="memory-author">Memory author</h3>
+  <p>Oxagen stores each memory as <code>memory/v1</code>, with the agent that wrote it and the run it came from. The agent is named by the lineage its <code>agents/&lt;name&gt;.toml</code> file gives it. <span class="st p">Proposed</span></p>
+  <ul>
+    <li>Oxagen sets <code>agent</code> and <code>run</code> from the authenticated run. The inputs to <code>remember</code> and <code>reflect</code> have no agent field, so an agent cannot write a memory under another agent's name.</li>
+    <li>A memory the local gateway reads from a harness's memory folder gets the agent that enrollment recorded for that harness on that machine. Its <code>run</code> is null.</li>
+    <li>A memory the code repository check finds in a pull request gets the agent and run that opened the pull request, when Oxagen recorded that run. Otherwise both are null, and the memory steers nothing until a person reviews it.</li>
+    <li>A reflection carries <code>agent</code> and <code>run</code> the same way, and each lesson in it takes both from the reflection.</li>
+    <li>When the curator promotes a memory, it copies <code>agent</code> into the record's <code>provenance.agent</code>.</li>
+  </ul>
+  <figure class="code"><figcaption><span class="path">memory/v1, as Oxagen stores it</span><button type="button" class="copy">Copy</button></figcaption><pre><code data-lang="json">{
+  "schema": "memory/v1",
+  "id": "mem_01K5QK9A",
+  "agent": "a-intel.core.release-manager",
+  "run": "run_01K5QK7D",
+  "capture": "remember",
+  "statement": "The CI cache key hashes pnpm-lock.yaml. Update the lockfile with any dependency change, or CI restores a stale cache and typecheck fails.",
+  "kind": "memory",
+  "repos": ["github.com/a-intel/platform"],
+  "applies_to": [".github/workflows/**", "pnpm-lock.yaml"],
+  "evidence": ["frame:run_01K5QK7D/88"],
+  "created_at": "2026-09-26T14:02:11Z"
+}</code></pre></figure>
+  <p><code>capture</code> is <code>remember</code>, <code>pull_request</code>, or <code>local_gateway</code>. <code>agent</code> and <code>run</code> are null only where the list above allows it.</p>
 
   <h3>Reflection</h3>
   <p>A reflection is a memory. <span class="st d">Decided</span> (Mac, 2026-09-26) What sets it apart is what it holds: the agent's grades for the work and for the tools it was given, and any lessons worth promoting. Tool grades stay in Oxagen as a signal for the server's owner and never steer anything, since agents rarely grade themselves well.</p>
@@ -1327,7 +1356,7 @@ auto_merge = false                   # allowed in solo mode only
 [[reviewers]]
 paths = ["steering/billing/**", "tools/servers/billing/**"]
 group = "billing-leads"</code></pre></figure>
-  <p><code>recall_unreviewed</code> decides whether an unreviewed memory steers anything before a person reviews it. It steers only the agent that wrote it, at force <code>info</code> (Mac, 2026-09-26). <code>off</code> stops even that. <code>regulated</code> mode forces <code>off</code>. The in-app agent never receives workspace memories (Mac, 2026-09-25).</p>
+  <p><code>recall_unreviewed</code> decides whether an unreviewed memory steers anything before a person reviews it. It steers only the agent that wrote it, at force <code>info</code> (Mac, 2026-09-26). A memory with no agent steers nothing until a person reviews it. <span class="st p">Proposed</span> <code>off</code> stops even that. <code>regulated</code> mode forces <code>off</code>. The in-app agent never receives workspace memories (Mac, 2026-09-25).</p>
 </section>
 
 <section id="scale">
@@ -1451,8 +1480,8 @@ steering/billing/a-intel.billing.refunds-over-100.md:12
       <tr><td><code>steering_search</code></td><td class="wrap">Returns index lines for records and skills that match a query, a kind, or a repository. It finds no tools</td></tr>
       <tr><td><code>steering_read</code></td><td class="wrap">Returns one record's body, or a file from a skill folder</td></tr>
       <tr><td><code>steering_propose</code></td><td class="wrap">Opens a steering PR from files, a title, the rationale, and evidence frames</td></tr>
-      <tr><td><code>remember</code></td><td class="wrap">Writes a memory with its evidence</td></tr>
-      <tr><td><code>reflect</code></td><td class="wrap">Stores the run's reflection, a memory with grades</td></tr>
+      <tr><td><code>remember</code></td><td class="wrap">Writes a memory with its evidence. Oxagen adds the agent and run</td></tr>
+      <tr><td><code>reflect</code></td><td class="wrap">Stores the run's reflection, a memory with grades. Oxagen adds the agent and run</td></tr>
     </tbody>
   </table></div>
   <h3 id="finding-tools">Finding tools</h3>
@@ -1514,7 +1543,7 @@ billing__call {"tool": "create_refund", "arguments": {"charge": "ch_3Q", "amount
     <tbody>
       <tr><td>Steering repo</td><td class="wrap"><code>&lt;org&gt;/oxagen-&lt;workspace-slug&gt;</code>, then <code>-2</code> on a clash. Organization repo <code>&lt;org&gt;/oxagen</code>.</td></tr>
       <tr><td>Top-level paths</td><td class="wrap"><code>AGENTS.md</code> <code>CLAUDE.md</code> <code>README.md</code> <code>.gitattributes</code> <code>workspace.toml</code> <code>agents/</code> <code>steering/</code> <code>steering/governance.toml</code> <code>steering/promotions/&lt;period&gt;.jsonl</code>, then <code>&lt;period&gt;.002.jsonl</code> past the line cap <code>steering/skills/</code> <code>steering/memory/</code> <code>tools/servers/&lt;name&gt;/</code> <code>tools/toolbelts/</code> <code>policy/</code></td></tr>
-      <tr><td>Schema ids</td><td class="wrap"><code>steering-record/v1</code> <code>workspace/v1</code> <code>agent/v1</code> <code>governance/v1</code> <code>toolbelt/v1</code> <code>mcp-server/v1</code> <code>mcp-tools/v1</code> <code>mcp-tools-lock/v1</code> <code>tool-manifest/v1</code> <code>reflection/v1</code> <code>promotion/v1</code> <code>bundle/v1</code>, each at <code>https://oxagen.sh/schemas/&lt;id&gt;.json</code></td></tr>
+      <tr><td>Schema ids</td><td class="wrap"><code>steering-record/v1</code> <code>workspace/v1</code> <code>agent/v1</code> <code>governance/v1</code> <code>toolbelt/v1</code> <code>mcp-server/v1</code> <code>mcp-tools/v1</code> <code>mcp-tools-lock/v1</code> <code>tool-manifest/v1</code> <code>reflection/v1</code> <code>memory/v1</code> <code>promotion/v1</code> <code>bundle/v1</code>, each at <code>https://oxagen.sh/schemas/&lt;id&gt;.json</code></td></tr>
       <tr><td>Naming</td><td class="wrap">snake_case for properties, fields, and keys, such as <code>always_on_tokens</code>. Hyphens for file names, folder names, and record slugs, such as <code>refunds-over-100.md</code>. Neither uses camelCase. Function names in code follow the language, so <code>withTenantDb</code> stays. A name a standard fixes, such as MCP's <code>inputSchema</code>, keeps the standard's spelling. <span class="st d">Decided</span> (Mac, 2026-09-26)</td></tr>
       <tr><td>Tool name</td><td class="wrap"><code>&lt;server&gt;__&lt;tool&gt;</code>. Built-in tools are <code>builtin__&lt;name&gt;</code>, and <code>builtin</code> is reserved. Server <code>^[a-z][a-z0-9_]{0,23}$</code>, tool <code>^[a-z][a-z0-9_]*$</code>, 64 characters at most in all. A pinned reference adds <code>@&lt;version&gt;</code>.</td></tr>
       <tr><td>Credential reference</td><td class="wrap"><code>oxagen:credential/&lt;name&gt;</code>, name <code>^[a-z0-9][a-z0-9-]{0,62}$</code></td></tr>
@@ -1527,6 +1556,7 @@ billing__call {"tool": "create_refund", "arguments": {"charge": "ch_3Q", "amount
       <tr><td>Environment</td><td class="wrap"><code>steering</code></td></tr>
       <tr><td>Published version</td><td class="wrap">An integer per workspace that rises by one on each publish</td></tr>
       <tr><td>Bundle</td><td class="wrap"><code>bundle/v1</code>: what the cloud gateway and session start read for a published version. It holds the record index with token counts, the rendered always-on blocks per code repository, the Cedar policy set, and the tool manifest.</td></tr>
+      <tr><td>Memory author</td><td class="wrap"><code>agent</code> and <code>run</code> on <code>memory/v1</code> and <code>reflection/v1</code>, and <code>provenance.agent</code> on <code>steering-record/v1</code>. Oxagen sets them from the authenticated run. No tool input carries them.</td></tr>
       <tr><td>Repo health</td><td class="wrap"><code>healthy</code> <code>drifted</code> <code>disconnected</code> <code>diverged</code></td></tr>
     </tbody>
   </table></div>
