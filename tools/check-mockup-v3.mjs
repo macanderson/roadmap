@@ -281,22 +281,34 @@ const money = await page.evaluate(() => {
 ok(Math.abs(money.total - money.all) < 1e-9, "spend: the month total is not the sum of its sessions");
 for (const [k, sum] of money.groups) ok(Math.round(sum * 100) === Math.round(money.total * 100), `spend: grouping ${k} sums to ${sum}, not ${money.total}`);
 
-// Steering: the items' costs sum to the steering cost the header states, before and after every
-// suggestion is added, and an added item has reached no recorded session.
-await open(page, `${BASE}/steering`, "&theme=dark");
-for (const b of await page.$$('[data-act="sug-add"]')) await page.click('[data-act="sug-add"]');
+// Steering: a suggestion changes steering only through a steering PR (steering-repo-spec.html,
+// Memory). Opening the PR adds nothing. Once it merges, the record joins the list and has reached no
+// recorded session. The records' costs, memories included, sum to the cost the header states.
+// The check merges each PR by setting its state, since team mode only queues a merge.
+async function acceptAndMerge() {
+  await open(page, `${BASE}/steering`, "&theme=dark");
+  const prs = await page.evaluate(() => STEERING.suggestions.map((sg) => acceptSuggestion(sg.id)));
+  const early = await page.evaluate((ns) => ({
+    open: ns.every((n) => { const pr = prBy(n); return pr && pr.kind === "record" && pr.state === "open" && /origin: inferred/.test(pr.record.body); }),
+    fresh: steeringItems().filter((i) => i.fresh).length,
+  }), prs);
+  await page.evaluate((ns) => ns.forEach((n) => { prBy(n).state = "merged"; }), prs);
+  return early;
+}
+const early = await acceptAndMerge();
+ok(early.open && early.fresh === 0, `steering: a suggestion changed steering before its steering PR merged ${JSON.stringify(early)}`);
 const fresh = await page.evaluate(() => steeringItems().filter((i) => i.fresh).map((i) => steeringStats(i)));
 ok(fresh.length === 2 && fresh.every((f) => f.cost === 0 && f.sessions === 0), `steering: an added item claims recorded sessions ${JSON.stringify(fresh)}`);
 const steer = await page.evaluate(() => {
   const items = steeringItems().reduce((t, i) => t + steeringStats(i).cost, 0);
-  const total = sessions().reduce((t, s) => { let c = 0; for (const k in s.cost.by) if (k === "steering" || /^skill:/.test(k)) c += s.cost.by[k]; return t + c; }, 0);
+  const total = sessions().reduce((t, s) => { let c = 0; for (const k in s.cost.by) if (k === "steering" || k === "memory" || /^skill:/.test(k)) c += s.cost.by[k]; return t + c; }, 0);
   return { items, total };
 });
 ok(Math.abs(steer.items - steer.total) < 1e-9, `steering: the items sum to ${steer.items}, not the header's ${steer.total}`);
 
-// A session sent after suggestions are added starts with the steering the Send dialog promised.
-await open(page, `${BASE}/steering`, "&theme=dark");
-for (const b of await page.$$('[data-act="sug-add"]')) await page.click('[data-act="sug-add"]');
+// A session sent after the suggestions' steering PRs merge starts with the steering the Send dialog
+// promised: the block for the work item's code repository.
+await acceptAndMerge();
 await page.evaluate(() => go("work", null));
 await page.click('tr [data-act="send"]');
 await page.waitForSelector(".dlg");
@@ -304,10 +316,10 @@ await page.click('[data-act="send-agent"][data-agent="triage"]');
 await page.click('[data-act="send-go"]');
 await page.waitForFunction(() => S.area === "sessions" && S.id && S.id.indexOf("ses_01K5S") === 0, null, { timeout: 10000 });
 const sent = await page.evaluate(() => {
-  const T = transcriptBy(S.id), a = agentBy(T.agent);
+  const T = transcriptBy(S.id);
   const got = transcriptSteps(T, transcriptEvents(T)).filter((s) => s.add && s.add[0] === "steering").reduce((t, s) => t + s.add[1], 0);
-  const want = steeringNext(a).reduce((t, i) => t + i.tok, 0);
-  return { got, want, banner: /delivered 11 steering items/.test(document.getElementById("rp-body").innerText) };
+  const want = steeringNext(transcriptRepo(T)).reduce((t, i) => t + i.tok, 0);
+  return { got, want, banner: /delivered 13 steering records/.test(document.getElementById("rp-body").innerText) };
 });
 ok(sent.got === sent.want && sent.banner, `send: the session starts with ${sent.got} steering tokens, the dialog promised ${sent.want} (banner ${sent.banner})`);
 

@@ -7,7 +7,6 @@
    "kind": "procedure",
    "title": "Workspace instructions",
    "tok": 1180,
-   "agents": "all",
    "by": "marcus",
    "edited": "2026-09-23",
    "version": 7,
@@ -34,7 +33,8 @@
    ],
    "force": "must",
    "scope": "workspace",
-   "path": "steering/core/a-intel.core.workspace-instructions.md"
+   "path": "steering/core/a-intel.core.workspace-instructions.md",
+   "words": 870
   },
   {
    "id": "notes-format",
@@ -43,7 +43,6 @@
    "kind": "preference",
    "text": "Release notes group changes by surface, not by author. Every entry links the pull request.",
    "tok": 34,
-   "agents": "all",
    "by": "marcus",
    "edited": "2026-09-04",
    "version": 2,
@@ -58,16 +57,16 @@
    "kind": "constraint",
    "text": "Never merge a release pull request. A person merges it.",
    "tok": 32,
-   "agents": [
-    "release-manager"
-   ],
    "by": "marcus",
    "edited": "2026-09-04",
    "version": 1,
    "force": "must",
    "effect": "forbid",
    "scope": "workspace",
-   "path": "steering/platform/a-intel.platform.never-merge-release.md"
+   "path": "steering/platform/a-intel.platform.never-merge-release.md",
+   "tools": [
+    "github__merge_pull_request"
+   ]
   },
   {
    "id": "retry-helper",
@@ -76,7 +75,6 @@
    "kind": "code-rule",
    "text": "Use the workspace's retry helper, not an ad hoc loop.",
    "tok": 26,
-   "agents": "all",
    "by": "amara",
    "edited": "2026-09-09",
    "version": 1,
@@ -91,7 +89,6 @@
    "kind": "constraint",
    "text": "Never print a secret, a token or a connection string, even in part.",
    "tok": 28,
-   "agents": "all",
    "by": "priya",
    "edited": "2026-09-02",
    "version": 1,
@@ -107,7 +104,6 @@
    "kind": "code-rule",
    "text": "A schema change ships with its migration in the same pull request.",
    "tok": 30,
-   "agents": "all",
    "by": "amara",
    "edited": "2026-09-15",
    "version": 1,
@@ -122,10 +118,6 @@
    "kind": "fact",
    "text": "The checkout e2e suite flaked on Safari through August. A retry there is not evidence of a regression.",
    "tok": 48,
-   "agents": [
-    "stella-ci",
-    "reviewer"
-   ],
    "by": "marcus",
    "edited": "2026-09-01",
    "version": 1,
@@ -134,7 +126,8 @@
    "repos": [
     "github.com/a-intel/platform"
    ],
-   "path": "steering/platform/a-intel.platform.safari-e2e-flake.md"
+   "path": "steering/platform/a-intel.platform.safari-e2e-flake.md",
+   "load": "relevant"
   },
   {
    "id": "review-tone",
@@ -143,15 +136,15 @@
    "kind": "preference",
    "text": "A review comment names the line, the problem and the fix. No praise and no summaries.",
    "tok": 36,
-   "agents": [
-    "reviewer"
-   ],
    "by": "priya",
    "edited": "2026-09-08",
    "version": 3,
    "force": "should",
    "scope": "workspace",
-   "path": "steering/platform/a-intel.platform.review-comments.md"
+   "path": "steering/platform/a-intel.platform.review-comments.md",
+   "skills": [
+    "a-intel.platform.code-reviewer"
+   ]
   },
   {
    "id": "mem-vitest",
@@ -160,7 +153,6 @@
    "kind": "memory",
    "text": "a-intel/platform uses Vitest, not Jest.",
    "tok": 18,
-   "agents": "all",
    "by": "marcus",
    "edited": "2026-09-11",
    "version": 1,
@@ -176,7 +168,6 @@
    "kind": "memory",
    "text": "The rate limiter's refill time is in milliseconds.",
    "tok": 16,
-   "agents": "all",
    "by": "marcus",
    "edited": "2026-09-24",
    "version": 1,
@@ -192,7 +183,6 @@
    "kind": "memory",
    "text": "Docs changes run pnpm check:prose before the pull request.",
    "tok": 22,
-   "agents": "all",
    "by": "priya",
    "edited": "2026-09-19",
    "version": 1,
@@ -208,7 +198,6 @@
    "kind": "memory",
    "text": "The API stores timestamps in UTC. The web app converts them to the browser's time zone.",
    "tok": 26,
-   "agents": "all",
    "by": "amara",
    "edited": "2026-09-16",
    "version": 1,
@@ -224,9 +213,6 @@
    "title": "release-notes-from-prs",
    "text": "Draft release notes from the pull requests merged since a tag.",
    "tok": 1840,
-   "agents": [
-    "release-manager"
-   ],
    "by": "marcus",
    "edited": "2026-09-04",
    "version": 4,
@@ -246,9 +232,6 @@
    "title": "rollback-a-bad-release",
    "text": "Roll a release back to the last good tag and write the incident note.",
    "tok": 1420,
-   "agents": [
-    "release-manager"
-   ],
    "by": "marcus",
    "edited": "2026-08-30",
    "version": 2,
@@ -267,10 +250,6 @@
    "title": "e2e-flake-triage",
    "text": "Find why an end-to-end test flakes, then fix it or quarantine it with a reason.",
    "tok": 980,
-   "agents": [
-    "stella-ci",
-    "triage"
-   ],
    "by": "marcus",
    "edited": "2026-09-10",
    "version": 1,
@@ -280,6 +259,24 @@
    "force": "may",
    "scope": "workspace",
    "path": "steering/skills/a-intel.platform.e2e-flake-triage/SKILL.md"
+  },
+  {
+   "id": "code-reviewer",
+   "lineage": "a-intel.platform.code-reviewer",
+   "kind": "skill",
+   "title": "code-reviewer",
+   "text": "Review a pull request diff against the platform's conventions and post one review.",
+   "tok": 900,
+   "by": "priya",
+   "edited": "2026-09-08",
+   "version": 2,
+   "files": [
+    "SKILL.md",
+    "references/checklist.md"
+   ],
+   "force": "may",
+   "scope": "workspace",
+   "path": "steering/skills/a-intel.platform.code-reviewer/SKILL.md"
   }
  ],
  "suggestions": [
@@ -293,7 +290,9 @@
     "said": "Skip the mobile repo this cycle; 4.11.0 is platform only.",
     "by": "marcus"
    },
-   "lineage": "a-intel.platform.notes-platform-only"
+   "lineage": "a-intel.platform.notes-platform-only",
+   "label": "Release notes cover platform only",
+   "force": "should"
   },
   {
    "id": "sug-lint-first",
@@ -309,7 +308,9 @@
     ],
     "by": "release-manager"
    },
-   "lineage": "a-intel.platform.release-lint-first"
+   "lineage": "a-intel.platform.release-lint-first",
+   "label": "Lint release notes first",
+   "force": "should"
   }
  ],
  "import": {
@@ -327,7 +328,7 @@
     "dupes": 8
    },
    {
-    "where": "a-intel/billing",
+    "where": "a-intel/billing-service",
     "file": ".cursor/rules/billing.mdc",
     "lines": 5,
     "dupes": 1
@@ -377,8 +378,7 @@
    "always_on_tokens": null,
    "defaultBudget": 4000,
    "memory": {
-    "recall_candidates": "same-agent",
-    "min_runs": 2,
+    "recall_unreviewed": "same-agent",
     "batch_size": 20,
     "retire_after_days": 180,
     "auto_merge": false
@@ -395,7 +395,11 @@
       "priya"
      ]
     }
-   ]
+   ],
+   "ledger": {
+    "rotate": "month",
+    "max_lines": 10000
+   }
   },
   "linked": [
    {
@@ -487,10 +491,10 @@
    "disconnected": {
     "since": "2026-09-25T12:52:00",
     "diffs": [
-     "The oxagen GitHub App installation on a-intel no longer covers `oxagen-core-platform`. @pnatarajan changed its repository access at 12:52."
+     "The `Oxagen Steering` installation on a-intel no longer covers `oxagen-core-platform`. @pnatarajan changed its repository access at 12:52."
     ],
     "effect": "oxagen cannot read, merge, or publish. Sessions keep published version 412.",
-    "fix": "An organization admin reconnects the app to the repository.",
+    "fix": "An organization admin reconnects `Oxagen Steering` to the repository.",
     "admin": "priya"
    },
    "diverged": {
@@ -726,7 +730,7 @@
    "opened": "2026-09-25T06:00:00",
    "queue": null,
    "approvals": [],
-   "summary": "The curator read 22 candidates from 14 sessions. It merged 9 duplicates, dropped 5 that an active record already says, and held 4 below 2 distinct sessions. These 4 remain.",
+   "summary": "The curator read 22 candidates from 14 sessions. It merged 9 duplicates, dropped 5 that an active record already says, and kept 4 in oxagen as not worth a PR yet. These 4 remain.",
    "memories": [
     {
      "id": "m1",
@@ -743,18 +747,23 @@
      "text": "The CI cache key hashes pnpm-lock.yaml. Update the lockfile with any dependency change, or CI restores a stale cache and typecheck fails.",
      "evidence": [
       {
-       "s": "ses_01K55WK7C30YXRC5",
-       "frame": 88
+       "s": "ses_01K5SR48CKKHNMQ0",
+       "frame": 22
       },
       {
-       "s": "ses_01K5FPBPTG8T1VTW",
-       "frame": 131
+       "s": "ses_01K5ZKKJPCE392PM",
+       "frame": 13
       },
       {
-       "s": "ses_01K58P0H7ZVN24G5",
-       "frame": 47
+       "s": "ses_01K5BNF0FTJHAFCT",
+       "frame": 31
+      },
+      {
+       "s": "ses_01K5V8QTH4EZ5MP0",
+       "frame": 17
       }
-     ]
+     ],
+     "lands": "memory"
     },
     {
      "id": "m2",
@@ -767,19 +776,16 @@
      "text": "Release notes for a-intel/cli come from the cli milestone, not the platform milestone.",
      "evidence": [
       {
-       "s": "ses_01K54K9NEWDQ9ATA",
-       "frame": 64
-      },
-      {
-       "s": "ses_01K5MJV704RD08VX",
-       "frame": 29
+       "s": "ses_01K5KDXNGM03MANK",
+       "frame": 19
       }
-     ]
+     ],
+     "lands": "business-rule"
     },
     {
      "id": "m3",
      "lineage": "a-intel.billing.fake-stripe",
-     "agent": "triage",
+     "agent": "release-manager",
      "tok": 30,
      "repos": [
       "github.com/a-intel/billing-service"
@@ -787,18 +793,11 @@
      "text": "billing-service tests need BILLING_FAKE_STRIPE=1, or they call Stripe's test API and time out.",
      "evidence": [
       {
-       "s": "ses_01K5R4F2F7EZ52HQ",
-       "frame": 52
-      },
-      {
-       "s": "ses_01K5KY954NQ40BE8",
-       "frame": 40
-      },
-      {
-       "s": "ses_01K5NT1566M8SGD2",
-       "frame": 77
+       "s": "ses_01K5SRWB9JC3FQBD",
+       "frame": 34
       }
-     ]
+     ],
+     "lands": "memory"
     },
     {
      "id": "m4",
@@ -812,14 +811,15 @@
      "contradicts": "safari-flake",
      "evidence": [
       {
-       "s": "ses_01K5RN8F3J2GHY6T",
-       "frame": 41
+       "s": "ses_01K5XSXG30ZZQDMV",
+       "frame": 29
       },
       {
-       "s": "ses_01K5BBGE0Z8D4WN1",
-       "frame": 96
+       "s": "ses_01K5A7JRH85BPHT6",
+       "frame": 11
       }
-     ]
+     ],
+     "lands": "fact"
     }
    ],
    "checks": [
@@ -859,11 +859,11 @@
    "branch": "steering/release-steps",
    "by": "release-manager",
    "via": "steering_propose",
-   "session": "ses_01K54K9NEWDQ9ATA",
-   "opened": "2026-09-24T12:02:00",
+   "session": "ses_01K5BNM8REBPFZGP",
+   "opened": "2026-09-21T12:00:00",
    "queue": null,
    "approvals": [],
-   "summary": "Release manager proposed it after the CLI 1.8.0 release notes failed twice on a missing step.",
+   "summary": "Release manager proposed it while closing the 4.10 milestone, after the release notes failed lint twice on a missing step.",
    "record": {
     "lineage": "a-intel.platform.release-steps",
     "label": "Release steps",
@@ -873,7 +873,7 @@
     "tok": 2760,
     "words": 1940,
     "path": "steering/platform/a-intel.platform.release-steps.md",
-    "body": "---\nschema: steering-record/v1\nlineage: a-intel.platform.release-steps\nlabel: Release steps\ndescription: Cut a release: tag, changelog, draft release, then hand off.\nkind: procedure\nforce: must\nscope: workspace\nstatus: active\norigin: inferred\nprovenance:\n  source: session\n  uri: oxagen:session/ses_01K54K9NEWDQ9ATA\n---\n\n## Before you tag\n1. Read the milestone for the release and list every merged pull request.\n2. Run pnpm release:lint on the notes before you commit them.\n...\n(1,940 words in all)"
+    "body": "---\nschema: steering-record/v1\nlineage: a-intel.platform.release-steps\nlabel: Release steps\ndescription: Cut a release: tag, changelog, draft release, then hand off.\nkind: procedure\nforce: must\nscope: workspace\nstatus: active\norigin: inferred\nprovenance:\n  source: session\n  uri: oxagen:session/ses_01K5BNM8REBPFZGP\n---\n\n## Before you tag\n1. Read the milestone for the release and list every merged pull request.\n2. Run pnpm release:lint on the notes before you commit them.\n...\n(1,940 words in all)"
    },
    "checks": [
     {
@@ -1010,29 +1010,31 @@
   }
  ],
  "checkNames": {
-  "schema": "Fails when a file does not match its JSON Schema.",
+  "schema": "Fails when a file does not match its JSON Schema, or a record's folder breaks a skill's shape.",
   "lineage": "Fails when two files share a lineage.",
   "hash": "Fails when a stamped id or hash does not match the content.",
-  "secrets": "Fails when a secret or personal data appears in a file.",
+  "secrets": "Fails when a secret or personal data appears in any file.",
   "conflicts": "Fails when an active record requires what this one forbids.",
   "authority": "Fails when a record tries to grant authority.",
   "settings": "Fails when the repository settings differ from the prescribed ones.",
-  "references": "Fails when a named tool, record, repository, credential, or skill file does not exist.",
-  "budget": "Fails when the change pushes an agent's always-on steering over a budget.",
-  "compile": "Fails when a server folder does not compile, its lock does not match, or a policy test fails.",
-  "owned": "Fails when the change edits a file oxagen writes."
+  "references": "Fails when a named tool, record, repository, credential, skill file, runtime, or @mention does not exist.",
+  "budget": "Warns when the change pushes a code repository's always-on steering over its budget. It passes either way.",
+  "compile": "Fails when a server folder does not compile to tools, its lock does not match, a Cedar policy does not validate, or a policy test fails.",
+  "owned": "Fails when the change edits a file only oxagen writes, or changes the managed block in AGENTS.md, CLAUDE.md, or README.md."
  },
  "provision": {
   "steps": [
    {
     "k": "connection",
     "t": "Pick the provider connection",
-    "d": "The GitHub App installation on a-intel"
+    "d": "The `Oxagen Steering` installation on a-intel"
    },
    {
     "k": "create",
     "t": "Create the repository",
-    "d": "A private repository"
+    "d": "A private repository, added to the installation",
+    "error": "GitHub refused to add the repository to the `Oxagen Steering` installation. The organization owner who authorized it left a-intel, and GitHub revoked the token.",
+    "fix": "Any other organization owner re-authorizes once. Existing workspaces keep working, and every step is safe to repeat."
    },
    {
     "k": "commit",
@@ -1042,9 +1044,7 @@
    {
     "k": "settings",
     "t": "Apply the settings",
-    "d": "oxagen writes the rulesets, merge options, and steering environment, then reads them back",
-    "error": "GitHub refused the ruleset `Oxagen merges`. The oxagen GitHub App lacks the Administration permission on a-intel.",
-    "fix": "An organization admin grants Administration write to the app in GitHub, then you retry. Every step is safe to repeat."
+    "d": "oxagen writes the rulesets, merge options, and steering environment, then reads them back"
    },
    {
     "k": "publish",

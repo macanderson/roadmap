@@ -382,10 +382,11 @@ function marginFor(b) {
   return bits.join("");
 }
 
-/* What oxagen handed the session before its first prompt. */
+/* What oxagen handed the session before its first prompt: the steering block for its code repository
+   and the workspace's imported servers. */
 function bannerMargin() {
-  var a = agentBy(RP.T.agent), n = RP.T.steeringCount != null ? RP.T.steeringCount : Ledger.steeringFor(a, LEDGER_F).length;
-  return '<span class="mg-note">oxagen delivered ' + plural(n, "steering item") + " and " + plural(a.servers.length, "MCP server") + "</span>";
+  var n = RP.T.steeringCount != null ? RP.T.steeringCount : Ledger.steeringFor(transcriptRepo(RP.T), LEDGER_F).length;
+  return '<span class="mg-note">oxagen delivered ' + plural(n, "steering record") + " and " + plural(Ledger.toolServers(LEDGER_F, RP.T.started).length, "MCP server") + "</span>";
 }
 
 /* ---- drawing ---- */

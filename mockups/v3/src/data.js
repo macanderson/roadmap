@@ -15,9 +15,14 @@ function modelLabel(model) { return (PRICES[model] || { label: model }).label; }
 
 
 /* ---- transcripts: events → ledger steps → requests ---- */
+/* The code repository a session works in: the one its work item names, else platform. */
+function repoOfWork(key) { var m = key && /^a-intel\/([\w-]+)#/.exec(key); return "github.com/a-intel/" + (m ? m[1] : "platform"); }
+function transcriptRepo(T) { return T.repo || repoOfWork(T.wi); }
+function skillById(id) { for (var i = 0; i < STEERING.items.length; i++) if (STEERING.items[i].kind === "skill" && STEERING.items[i].id === id) return STEERING.items[i]; return null; }
 function transcriptSteps(T, events) {
-  var agent = agentBy(T.agent), steps = Ledger.context0(agent, LEDGER_F).map(function (c) { return { add: c }; });
-  // A session sent from this page also carries the steering items added here before it started.
+  var agent = agentBy(T.agent), repo = transcriptRepo(T);
+  var steps = Ledger.context0(agent, LEDGER_F, { at: T.started, repo: repo, recall: T.recall || [] }).map(function (c) { return { add: c }; });
+  // A session sent from this page also carries the records that steering PRs merged here before it started.
   if (T.extraSteering) steps.push({ add: ["steering", T.extraSteering] });
   var calls = {};
   events.forEach(function (e) {
@@ -29,6 +34,9 @@ function transcriptSteps(T, events) {
       if (c && c.tool.kind === "skill") key = "skill:" + c.tool.name;
       else if (/^mcp:/.test(key)) key = key + "#res";
       steps.push({ add: [key, e.tok] });
+      // The records that target a skill load with it.
+      var sk = c && c.tool.kind === "skill" ? skillById(c.tool.name) : null, rec = sk ? Ledger.sum(Ledger.skillRecords(LEDGER_F, sk.lineage, repo)) : 0;
+      if (rec) steps.push({ add: ["steering#skill", rec] });
     }
   });
   return steps;
@@ -59,10 +67,11 @@ function transcriptStatus(T) {
 /* ---- sessions: the generated month, the four transcripts, and any sent from this page ---- */
 function sessionFromTranscript(T) {
   var led = transcriptLedger(T), ev = transcriptEvents(T), last = ev[ev.length - 1];
-  var calls = {}, byId = {};
+  var calls = {}, byId = {}, skills = {};
   ev.forEach(function (e) {
     if (e.k === "call") byId[e.id] = e;
     if (e.k === "call" && e.tool.kind === "mcp") { var k = e.tool.server + "." + e.tool.name; calls[k] = (calls[k] || 0) + 1; }
+    if (e.k === "call" && e.tool.kind === "skill") skills[e.tool.name] = 1;
   });
   var status = transcriptStatus(T), live = status === "running" || status === "needs-you";
   var elapsed = live ? (NOW - dt(T.started)) / 1000 : last.t;
@@ -70,6 +79,7 @@ function sessionFromTranscript(T) {
     id: T.id, title: T.title, agent: T.agent, person: T.person, started: T.started, dur: elapsed, status: status,
     wi: T.wi ? { key: T.wi, src: workBy(T.wi) ? workBy(T.wi).src : "github", title: workBy(T.wi) ? workBy(T.wi).title : T.title } : null,
     req: led.reqs.length, out: led.out, flows: led.flows, calls: calls, transcript: true, basis: T.basis,
+    repo: transcriptRepo(T), skills: skills, recall: T.recall || [], steer: T.steer || null,
   };
 }
 function workBy(key) { for (var i = 0; i < F.WORK.length; i++) if (F.WORK[i].key === key) return F.WORK[i]; return null; }
@@ -100,7 +110,7 @@ function isLive(s) { return s.status === "running" || s.status === "needs-you" |
 function sourceGroup(src, harness) {
   if (src === "output") return { key: "output", label: "Model output" };
   if (src === "system" || src === "tools") return { key: "harness", label: hxLabel(harness) + " prompt and tools" };
-  if (src === "steering" || /^skill:/.test(src)) return { key: "steering", label: "Steering" };
+  if (src === "steering" || src === "memory" || /^skill:/.test(src)) return { key: "steering", label: "Steering" };
   if (/^mcp:/.test(src)) { var sv = serverBy(src.slice(4)); return { key: src, label: (sv ? sv.name : src.slice(4)) + " server", server: src.slice(4) }; }
   if (src === "local") return { key: "local", label: "Files and commands" };
   return { key: "conversation", label: "Conversation" };
@@ -167,10 +177,6 @@ function dailySpend() {
 }
 
 /* ---- MCP servers ---- */
-function serverAgents(id) {
-  if (S.serverAgents[id]) return S.serverAgents[id];
-  return AGENTS.filter(function (a) { return a.servers.indexOf(id) >= 0; }).map(function (a) { return a.key; });
-}
 function serverStats(id) {
   var sv = serverBy(id), all = sessions(), cost = 0, calls = 0, perTool = {}, reqs = 0, save = 0;
   // Unused: imported, on, not already leaving in a staged change, and never called this month.
@@ -197,36 +203,48 @@ function serverStats(id) {
 }
 
 /* ---- Steering ---- */
+/* The records on this page: the steering repo's, plus the record each steering PR opened here adds
+   once that PR merges. Nothing else changes steering. */
 function steeringItems() {
   var items = STEERING.items.slice();
-  STEERING.suggestions.forEach(function (s) {
-    if (S.accepted[s.id]) items.push({ id: s.id, lineage: s.lineage, kind: s.kind, force: "should", scope: "workspace", path: "steering/platform/" + s.lineage + ".md", text: s.text, tok: s.tok, agents: "all", by: ME, edited: F.ORG.now.slice(0, 10), version: 1, fresh: true });
+  S.newPrs.forEach(function (pr) {
+    var r = pr.record;
+    if (pr.kind !== "record" || pr.state !== "merged" || !r) return;
+    items.push({ id: "new-" + pr.n, lineage: r.lineage, label: r.label, kind: r.kind, force: r.force, scope: r.scope, repos: r.repos || [], tools: r.tools || [], applies_to: r.applies_to || [], skills: r.skills || [],
+      text: r.text, tok: r.tok, path: r.path, body: r.body, by: pr.by, edited: String(pr.merged || F.ORG.now).slice(0, 10), version: 1, fresh: true, pr: pr.n });
   });
   return items;
 }
-function steeringStats(item) {
-  var all = sessions(), cost = 0, n = 0;
-  // An item added on this page reaches the next session. No recorded session carried it.
-  if (item.fresh) return { cost: 0, sessions: 0 };
+/* What each record, memory, and skill cost this month. A session's steering cost splits across the
+   records it carried, by token share: the block for its code repository (the always-on records in
+   full, and an index line for each of the rest), then the records that target a skill it loaded.
+   Its memory cost splits across the memories recall found for it. A skill's cost is its index line
+   plus its loads. A record a steering PR merged here reaches only the sessions sent after the merge. */
+var _alloc = null, _allocFor = null;
+function steeringAlloc() {
+  var all = sessions();
+  if (_alloc && _allocFor === all) return _alloc;
+  var out = {};
+  function give(id, c, load) { var o = out[id] || (out[id] = { cost: 0, sessions: 0, loads: 0 }); o.cost += c; if (load) o.loads++; else o.sessions++; }
+  function split(list, c) { var t = Ledger.sum(list); list.forEach(function (x) { give(x.id, t ? c * x.tok / t : 0); }); }
   all.forEach(function (s) {
-    var a = agentBy(s.agent);
-    if (item.kind === "skill") {
-      var c = s.cost.by["skill:" + item.id];
-      if (c) { cost += c; n++; }
-      return;
-    }
-    if (item.agents !== "all" && item.agents.indexOf(a.key) < 0) return;
-    var total = Ledger.steeringFor(a, LEDGER_F).reduce(function (t, i) { return t + i.tok; }, 0);
-    if (s.cost.by.steering && total) cost += s.cost.by.steering * item.tok / total;
-    n++;
+    var by = s.cost.by, carried = (s.steer || Ledger.steeringFor(s.repo, LEDGER_F)).map(function (x) { return { id: x.id, tok: x.tok }; });
+    Object.keys(by).forEach(function (k) {
+      if (!/^skill:/.test(k)) return;
+      var id = k.slice(6), sk = skillById(id);
+      give(id, by[k], true);
+      if (sk) Ledger.skillRecords(LEDGER_F, sk.lineage, s.repo).forEach(function (r) { carried.push({ id: r.id, tok: r.tok }); });
+    });
+    if (by.steering) split(carried, by.steering);
+    if (by.memory) split(Ledger.recall(LEDGER_F, s.recall), by.memory);
   });
-  return { cost: cost, sessions: n };
+  _alloc = out; _allocFor = all;
+  return out;
 }
-/* The steering an agent's next session starts with: what its recorded sessions got, plus any item
-   added on this page. Pricing uses Ledger.steeringFor alone, because no recorded session had the rest. */
-function steeringNext(agent) {
-  return Ledger.steeringFor(agent, LEDGER_F).concat(steeringItems().filter(function (i) { return i.fresh && (i.agents === "all" || i.agents.indexOf(agent.key) >= 0); }));
-}
+function steeringStats(item) { return steeringAlloc()[item.id] || { cost: 0, sessions: 0, loads: 0 }; }
+/* The steering block a session in a code repository starts with next: the steering repo's records,
+   plus any a steering PR merged here. */
+function steeringNext(repo) { return Ledger.steeringFor(repo, LEDGER_F, steeringItems()); }
 function suggestionFixup(sug) {
   // What the lint fix-up cost in the session that prompted the suggestion: the requests it names.
   var T = F.TRANSCRIPTS[sug.from.session], led = transcriptLedger(T);
@@ -294,7 +312,7 @@ function folderOf(sv) { return sv.source.type === "builtin" ? null : "tools/serv
 function toolName(sid, n) { return sid + "__" + n; }
 function toolBy(sid, n) { var sv = serverBy(sid); if (!sv) return null; for (var i = 0; i < sv.tools.length; i++) if (sv.tools[i].n === n) return sv.tools[i]; return null; }
 function isSearch(sv) { return !!(sv.exposure && sv.exposure.mode === "search"); }
-var SEARCH_TOK = 900;
+var SEARCH_TOK = Ledger.SEARCH_TOK;
 /* The off switch: a record of who turned it off and when, or null. A change made on this page wins
    over the fixture. */
 function serverOffBy(sv) { return S.srvOff[sv.id] !== undefined ? S.srvOff[sv.id] : sv.off || null; }
@@ -419,16 +437,15 @@ function govMode() { return firstRun() ? "solo" : REPO.governance.mode; }
 function prVisible(n) { return !firstRun() || S.newPrs.some(function (p) { return p.n === n; }); }
 
 /* The budget check (steering-repo-spec.html, Tokens): per code repository, the always-on steering
-   before and after the change, against the workspace's budget or oxagen's default. Always-on means
-   must or should with no applies_to or tools target, since a target keeps a record out of runs it
-   does not concern. The check warns and never fails. */
-function hasTargets(i) { return !!((i.applies_to && i.applies_to.length) || (i.tools && i.tools.length)); }
-function isAlwaysOn(i) { return (i.force === "must" || i.force === "should") && i.kind !== "skill" && i.kind !== "memory" && !hasTargets(i); }
-function reachesRepo(i, repo) { return i.scope === "repository" ? (i.repos || []).indexOf(repo) >= 0 : true; }
-function alwaysOnIn(repo) { return steeringItems().filter(function (i) { return isAlwaysOn(i) && reachesRepo(i, repo); }); }
+   before and after the change, against the workspace's budget or oxagen's default. The ledger's rule
+   decides what is always on: must or should with load: always, and no applies_to or skills target.
+   A tools target counts only when the workspace imports a matching tool. The check warns and never
+   blocks, because a steering PR is how a budget changes. */
+function isAlwaysOn(i) { return Ledger.isAlwaysOn(i, LEDGER_F); }
+function alwaysOnIn(repo) { return steeringNext(repo).filter(function (x) { return x.full; }).map(function (x) { return x.item; }); }
 function budgetRows(rec) {
   var set = REPO.governance.always_on_tokens, budget = set || REPO.governance.defaultBudget, adds = isAlwaysOn(rec);
-  var repos = rec.scope === "repository" && rec.repos && rec.repos.length ? rec.repos : REPO.linked.map(function (r) { return r.url; });
+  var repos = rec.repos && rec.repos.length ? rec.repos : REPO.linked.map(function (r) { return r.url; });
   return repos.map(function (repo) {
     var list = alwaysOnIn(repo), before = list.reduce(function (t, i) { return t + i.tok; }, 0);
     var old = list.filter(function (i) { return i.lineage === rec.lineage; })[0], after = before - (old ? old.tok : 0) + (adds ? rec.tok : 0);

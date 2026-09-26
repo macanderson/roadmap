@@ -18,7 +18,7 @@ var S = {
   empty: BOOT.empty, phone: BOOT.phone, theme: null, island: BOOT.island,
   workTab: "inbox", sessFilter: "all", spendBy: "work", spendOpen: null,
   dialog: null, drawer: null,
-  sent: {}, answered: {}, accepted: {}, dismissed: {}, serverAgents: {},
+  sent: {}, answered: {}, accepted: {}, dismissed: {},
   imported: { steering: false, servers: false }, connected: false,
   // An import opens a steering PR and applies nothing until it merges. importPr holds its number.
   importPr: { steering: null, servers: null }, firstRunVersion: 1,
@@ -26,7 +26,7 @@ var S = {
   // URL (?health=drifted, ?as=amara) switch them.
   health: "healthy", viewer: null, steerTab: "records", srvTab: "tools",
   staged: {}, toolOff: {}, srvOff: {}, cls: {}, descs: {}, drafts: {}, dropped: {}, approved: {}, queue: [62],
-  newPrs: [], noReview: {}, pendingAgents: {}, toolFilter: "all", toolQ: "", toolShow: 40, tryRun: {}, tryTool: {}, tryEnv: {},
+  newPrs: [], noReview: {}, toolFilter: "all", toolQ: "", toolShow: 40, tryRun: {}, tryTool: {}, tryEnv: {},
 };
 var HEALTH = ["healthy", "drifted", "disconnected", "diverged"];
 
