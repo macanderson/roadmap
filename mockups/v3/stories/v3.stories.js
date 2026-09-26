@@ -55,6 +55,7 @@ export const RepoDisconnected = { name: "Repo disconnected", args: { route: "wor
 export const RepoDiverged = { name: "Repo diverged", args: { route: "steering/pr-60?health=diverged" } };
 export const NewWorkspace = { name: "New workspace", args: { route: "work?dialog=newworkspace" } };
 export const ProvisioningFailed = { name: "Failed provisioning step", args: { route: "work?dialog=newworkspace&prov=failed" } };
+export const ProvisioningReauth = { name: "Provisioning re-authorization", args: { route: "work?dialog=newworkspace&prov=failed&as=priya" } };
 export const ProvisioningDone = { name: "Finished provisioning", args: { route: "work?dialog=newworkspace&prov=done" } };
 
 // MCP Studio (mcp-studio-spec.html).

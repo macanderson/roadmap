@@ -1058,3 +1058,5 @@ td.ckc input{accent-color:var(--gold)}
 .stack>*{margin-bottom:0}
 .stack>.tsum{margin-bottom:0}
 #layer.phone .mh{display:none}
+.chip .ck{color:var(--muted);margin-right:4px}
+.tgts{display:flex;flex-wrap:wrap;gap:4px}

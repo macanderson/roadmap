@@ -33,20 +33,22 @@ function mulberry32(seed) {
 }
 
 // Per agent: how many sessions, how long they run, how often they call an MCP server, which tools
-// they reach for, and the work they do.
+// they reach for, which skills they load, which memories recall finds for them, and the work they
+// do. hashSkills and recall are drawn from a hash of the session, not from the PRNG, so adding one
+// leaves every other session as it was.
 const PROFILE = {
   "release-manager": { n: 13, req: [18, 55], out: [80, 900], mcp: 0.4, big: 0.1,
     tools: { "github.list_pull_requests": 4, "github.compare_commits": 2, "github.get_file_contents": 3, "github.get_pull_request": 2, "github.create_release": 1, "github.add_issue_comment": 1, "oxagen.report_status": 1 },
     skills: { "release-notes-from-prs": 0.8, "rollback-a-bad-release": 0.15 },
     work: [
       ["a-intel/platform#446", "github", "Cut 4.10.3 release notes"], ["a-intel/platform#431", "github", "Cut 4.10.2 release notes"],
-      ["PLAT-201", "linear", "Draft the 4.10.2 hotfix advisory"], ["a-intel/billing#88", "github", "Changelog for billing 2.3.0"],
+      ["PLAT-201", "linear", "Draft the 4.10.2 hotfix advisory"], ["a-intel/billing-service#88", "github", "Changelog for billing 2.3.0"],
       ["a-intel/platform#438", "github", "Tag v4.10.3 and draft the release"], ["PLAT-205", "linear", "Close the 4.10 milestone"],
       ["a-intel/cli#57", "github", "Release notes for the CLI 1.8.0"], ["PLAT-226", "linear", "Check the 4.11.0 range against the milestone"],
     ] },
   triage: { n: 64, req: [14, 60], out: [60, 700], mcp: 0.3, big: 0.04,
     tools: { "github.get_issue": 5, "github.search_code": 3, "github.get_file_contents": 3, "github.create_pull_request": 3, "github.add_issue_comment": 2, "github.update_issue": 1, "linear.get_issue": 4, "linear.update_issue": 2, "linear.create_comment": 1, "linear.search_issues": 1, "sentry.search_issues": 2, "sentry.get_issue_details": 2, "sentry.get_event": 1, "oxagen.report_status": 1 },
-    skills: { "e2e-flake-triage": 0.08 },
+    skills: { "e2e-flake-triage": 0.08 }, recall: { "mem-vitest": 0.5, "mem-refill": 0.35, "mem-utc": 0.3 },
     work: [
       ["a-intel/platform#447", "github", "Invite emails link to the wrong workspace"], ["a-intel/platform#448", "github", "Tooltip clips at the screen edge"],
       ["PLAT-207", "linear", "Upload retries restart from the first chunk"], ["PLAT-210", "linear", "Session list ignores last activity when sorting"],
@@ -61,11 +63,11 @@ const PROFILE = {
     ] },
   reviewer: { n: 52, req: [8, 28], out: [120, 800], mcp: 0.65, big: 0,
     tools: { "github.get_pull_request": 3, "github.get_pull_request_diff": 5, "github.get_pull_request_files": 3, "github.get_file_contents": 2, "github.create_pull_request_review": 4, "github.add_issue_comment": 1 },
-    skills: {},
+    skills: {}, hashSkills: { "code-reviewer": 0.9 }, recall: { "mem-vitest": 0.2 },
     review: true },
   "docs-writer": { n: 15, req: [10, 38], out: [120, 1400], mcp: 0.25, big: 0.2,
     tools: { "linear.get_issue": 3, "linear.update_issue": 1, "github.get_file_contents": 2, "github.create_pull_request": 2 },
-    skills: {},
+    skills: {}, recall: { "mem-prose": 0.7 },
     work: [
       ["PLAT-202", "linear", "Docs: the budgets page"], ["PLAT-204", "linear", "Docs: API key scopes"], ["PLAT-208", "linear", "Docs: audit export format"],
       ["PLAT-211", "linear", "Docs: the SSO login hint"], ["PLAT-213", "linear", "Docs: webhook retries"], ["PLAT-215", "linear", "Docs: platform runs tail"],
@@ -73,7 +75,7 @@ const PROFILE = {
     ] },
   "stella-ci": { n: 44, req: [10, 46], out: [60, 600], mcp: 0.35, big: 0.02, nightly: true,
     tools: { "github.list_workflow_runs": 4, "github.get_workflow_run": 2, "github.get_job_logs": 4, "github.rerun_failed_jobs": 1, "github.create_pull_request": 2, "github.add_issue_comment": 1, "oxagen.report_status": 2 },
-    skills: { "e2e-flake-triage": 0.5 },
+    skills: { "e2e-flake-triage": 0.5 }, recall: { "mem-vitest": 0.4 },
     work: [
       ["PLAT-203", "linear", "CI: lint fails on a stale lockfile"], ["PLAT-206", "linear", "Flaky webhook retry test"], ["PLAT-209", "linear", "Quarantine the upload resume test on Firefox"],
       ["PLAT-224", "linear", "CI: e2e shard 3 times out"], ["PLAT-225", "linear", "Flaky ledger export snapshot"], ["PLAT-228", "linear", "CI: pnpm store cache misses"],
@@ -81,7 +83,7 @@ const PROFILE = {
     ] },
   "amara-claude": { n: 44, req: [30, 190], out: [60, 900], mcp: 0.16, big: 0.06, interactive: true,
     tools: { "github.get_file_contents": 2, "github.search_code": 2, "github.get_issue": 1, "github.get_pull_request": 1, "sentry.search_issues": 2, "sentry.get_issue_details": 2, "sentry.get_trace": 1, "sentry.search_events": 1, "postgres.query": 4, "postgres.describe_table": 2, "postgres.list_tables": 1 },
-    skills: {},
+    skills: {}, recall: { "mem-utc": 0.4, "mem-vitest": 0.3 },
     work: [
       ["a-intel/platform#454", "github", "Add queue depth to the health endpoint"], ["a-intel/platform#460", "github", "Per-workspace API key scopes"],
       ["a-intel/platform#458", "github", "SSO login hint on the sign-in page"], ["SUP-81", "jira", "Export job times out for one customer"],
@@ -111,6 +113,18 @@ const REVIEWED = [
   [615, "Seed data for the demo workspace"], [619, "docs: explain cost centers"], [621, "Queue depth metric counts in-flight jobs"],
 ];
 
+// FNV-1a over a string, as a number in [0, 1).
+function h01(str) {
+  let x = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { x ^= str.charCodeAt(i); x = Math.imul(x, 0x01000193) >>> 0; }
+  return x / 4294967296;
+}
+// The code repository a session works in: the repository its work item names, else platform.
+function repoOf(wi) {
+  const m = wi && /^a-intel\/([\w-]+)#/.exec(wi.key);
+  return "github.com/a-intel/" + (m ? m[1] : "platform");
+}
+
 export function generate() {
   const rnd = mulberry32(20260925);
   const int = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
@@ -119,7 +133,7 @@ export function generate() {
   const weighted = (w) => { const ks = Object.keys(w); let t = ks.reduce((a, k) => a + w[k], 0) * rnd(); for (const k of ks) { t -= w[k]; if (t <= 0) return k; } return ks[ks.length - 1]; };
   const F = { HARNESSES: read("harnesses.json"), SERVERS: read("servers.json"), STEERING: read("steering.json") };
   const AGENTS = read("agents.json");
-  const skillTok = Object.fromEntries(F.STEERING.items.filter((i) => i.kind === "skill").map((i) => [i.id, i.tok]));
+  const skillOf = Object.fromEntries(F.STEERING.items.filter((i) => i.kind === "skill").map((i) => [i.id, i]));
   const b32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
   const ulid = () => "ses_01K5" + Array.from({ length: 12 }, () => b32[int(0, 31)]).join("");
   const rows = [];
@@ -127,7 +141,6 @@ export function generate() {
 
   for (const agent of AGENTS) {
     const P = PROFILE[agent.key];
-    const ctx0 = Ledger.context0(agent, F);
     for (let s = 0; s < P.n; s++) {
       // When: a weekday between Sept 1 and 25 for people; stella CI also runs nightly.
       let day, hour, min;
@@ -150,24 +163,35 @@ export function generate() {
         title = t;
       }
 
-      // The session, step by step.
+      // The session, step by step. Its context starts with what the workspace held that day, the
+      // steering block for its code repository, and the memories recall found for it.
+      const repo = repoOf(wi), seed = `${agent.key}:${s}`;
+      const recall = Object.entries(P.recall || {})
+        .filter(([id, p]) => { const m = F.STEERING.items.find((i) => i.id === id); return m.edited <= started.slice(0, 10) && Ledger.reachesRepo(m, repo) && h01(`${seed}:recall:${id}`) < p; })
+        .map(([id]) => id);
+      const ctx0 = Ledger.context0(agent, F, { at: started, repo, recall });
       const n = int(P.req[0], P.req[1]);
       const steps = ctx0.map(([k, tok]) => ({ add: [k, tok] }));
       const calls = {}, skills = {};
       let dur = 0, prompts = 1;
       steps.push({ add: ["prompt", int(40, 220)] });
       const loads = Object.entries(P.skills).filter(([, p]) => chance(p)).map(([id]) => id);
+      const hashed = Object.entries(P.hashSkills || {}).filter(([id, p]) => h01(`${seed}:skill:${id}`) < p).map(([id]) => id);
       let prefixTok = ctx0.reduce((a, [, t]) => a + t, 0);
+      // A skill loads its body, and the records that target it load with it.
+      const loadSkill = (id) => {
+        const k = skillOf[id], rec = Ledger.sum(Ledger.skillRecords(F, k.lineage, repo));
+        steps.push({ add: ["skill:" + id, k.tok] }); skills[id] = 1; prefixTok += k.tok;
+        if (rec) { steps.push({ add: ["steering#skill", rec] }); prefixTok += rec; }
+      };
       for (let i = 1; i <= n; i++) {
         const out = chance(P.big) ? int(1200, 2600) : int(P.out[0], P.out[1]);
         steps.push({ req: out, n: i });
         dur += 2 + out / 55 + rnd() * 6;
         prefixTok += out;
         if (i === n) break;
-        if (i === 1 && loads.length) {
-          for (const id of loads) { steps.push({ add: ["skill:" + id, skillTok[id]] }); skills[id] = 1; prefixTok += skillTok[id]; }
-          continue;
-        }
+        if (i === 1) hashed.forEach(loadSkill);
+        if (i === 1 && loads.length) { loads.forEach(loadSkill); continue; }
         if (P.interactive && i % int(9, 22) === 0) {
           steps.push({ add: ["prompt", int(30, 260)] }); prompts++; dur += int(25, 420);
         }
@@ -188,13 +212,20 @@ export function generate() {
           dur += kind === "bash" ? 0.5 + rnd() * 20 : 0.05;
         }
         prefixTok += tok;
-        // Long sessions compact near 150k tokens, the way Claude Code does.
-        if (prefixTok > 150000) { steps.push({ compact: int(2400, 4200) }); prefixTok = ctx0.reduce((a, [, t]) => a + t, 0) + 3000; }
+        // Long sessions compact near 150k tokens, the way Claude Code does. The summary's size comes
+        // from the hash, so a change to the context's size moves a compaction without reshuffling
+        // every session after it.
+        if (prefixTok > 150000) {
+          steps.push({ compact: 2400 + Math.floor(h01(`${seed}:compact:${i}`) * 1801) });
+          prefixTok = ctx0.reduce((a, [, t]) => a + t, 0) + 3000;
+        }
       }
       const led = Ledger.run(steps);
       const status = chance(0.06) ? "stopped" : chance(0.02) ? "failed" : "done";
-      rows.push({ id: ulid(), title, agent: agent.key, person: agent.operator, wi, started, dur: Math.round(dur), status,
-        req: led.reqs.length, prompts, out: led.out, flows: led.flows, calls, skills });
+      const row = { id: ulid(), title, agent: agent.key, person: agent.operator, wi, repo, started, dur: Math.round(dur), status,
+        req: led.reqs.length, prompts, out: led.out, flows: led.flows, calls, skills };
+      if (recall.length) row.recall = recall;
+      rows.push(row);
     }
   }
   rows.sort((a, b) => (a.started < b.started ? 1 : -1));

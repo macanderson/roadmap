@@ -2,7 +2,7 @@
 # maintainer's machine, so this job is the only place the headless walks run.
 #
 #   npm run check:v3   the sessions fixture, the built page, and the headless walk in Chromium
-#   the second walk    every steering repo and MCP Studio screen and state (lane U1, issue #144).
+#   the second walk    every steering repo and MCP Studio screen and state (issues #144 and #152).
 #                      It belongs in tools/check-mockup-v3.mjs, which is outside U1's paths.
 name: mockup-v3
 on:
@@ -75,7 +75,8 @@ jobs:
             ["steering/pr-58", ".budget"], ["steering/pr-57", ".trailers"], ["steering/pr-59", ".mem"], ["steering/pr-61", ".tsd"], ["steering/pr-62", ".tsd"],
             ["steering/pr-60?health=diverged", ".health-b"], ["steering?tab=repo&dialog=linkrepo", ".dlg"],
             ["steering?health=drifted", ".health-b"], ["work?health=drifted&as=amara", ".health-b"], ["sessions?health=disconnected", ".health-b"],
-            ["work?dialog=workspaces", '.dlg [data-act="newws"]'], ["work?dialog=newworkspace", ".dlg"], ["work?dialog=newworkspace&prov=failed", '[data-act="nws-retry"]'], ["work?dialog=newworkspace&prov=done", '[data-act="nws-open"]'],
+            ["work?dialog=workspaces", '.dlg [data-act="newws"]'], ["work?dialog=newworkspace", ".dlg"], ["work?dialog=newworkspace&prov=failed", '[data-act="nws-retry"]'],
+            ["work?dialog=newworkspace&prov=failed&as=priya", '[data-act="nws-reauth"]'], ["work?dialog=newworkspace&prov=done", '[data-act="nws-open"]'], ["agents", ".acard"],
             ["servers", ".rank"], ["servers?dialog=addserver", ".srcpick"], ["servers?dialog=addserver&src=url", ".dlg"], ["servers?dialog=addserver&src=registry", ".catalog"],
             ["servers?dialog=addserver&src=local", ".dlg"], ["servers?dialog=addserver&src=definition", ".dlg"],
             ["servers?dialog=addserver&src=registry&pick=slack&phase=result", ".dlg table"], ["servers?dialog=addserver&src=definition&fmt=openapi&phase=result", ".dlg table"],
@@ -146,14 +147,24 @@ jobs:
           }
           const page = await browser.newPage({ viewport: SHELLS.desktop });
           watch(page, "flows");
-          // Provisioning: a name only, the failed step with Retry, then an open workspace.
+          // Provisioning: a name only, then Create the repository fails. A workspace owner is told to ask an
+          // organization owner. An organization owner re-authorizes, and Retry finishes.
           await flow("provision", async () => {
             await open(page, "work?dialog=newworkspace", "&theme=dark");
-            ok((await page.$$(".dlg input")).length === 1, "provision: the first step asks for more than a name");
             await page.fill("#nws-name", "Payments ops");
             await page.click('[data-act="nws-go"]');
             await page.waitForSelector('[data-act="nws-retry"]', { timeout: 15000 });
-            ok(/Apply the settings/.test(await page.innerText(".prov-step.st-failed")), "provision: the failed step is not Apply the settings");
+            ok(/Ask an organization owner, such as Priya Natarajan/.test(await page.innerText(".dlg")) && !(await page.$('[data-act="nws-reauth"]')), "provision: a workspace owner is offered Re-authorize, or is not told whom to ask");
+            await open(page, "work?dialog=newworkspace&as=priya", "&theme=dark");
+            ok((await page.$$(".dlg input")).length === 1, "provision: the first step asks for more than a name");
+            await page.fill("#nws-name", "Payments ops");
+            await page.click('[data-act="nws-go"]');
+            await page.waitForSelector('[data-act="nws-reauth"]', { timeout: 15000 });
+            ok(/Create the repository/.test(await page.innerText(".prov-step.st-failed")), "provision: the failed step is not Create the repository");
+            await page.click('[data-act="nws-retry"]');
+            await page.waitForSelector('[data-act="nws-reauth"]', { timeout: 15000 });
+            ok(/Create the repository/.test(await page.innerText(".prov-step.st-failed")), "provision: Retry before Re-authorize got past Create the repository");
+            await page.click('[data-act="nws-reauth"]');
             await page.click('[data-act="nws-retry"]');
             await page.waitForSelector('[data-act="nws-open"]', { timeout: 15000 });
             ok(/a-intel\/oxagen-payments-ops/.test(await page.innerText(".dlg")), "provision: the steering repo is not a-intel/oxagen-payments-ops");
@@ -249,6 +260,53 @@ jobs:
             ok(!/\nagents:/.test(body), "targets: the record writes an agents field the contract does not have");
             ok(/github\.com\/a-intel\/billing-service/.test(await page.innerText(".budget")), "targets: the budget check does not run for the record's repository");
             await copyCheck(page, "targets steering PR");
+          });
+          // A record can target a skill. The choice lands as skills: [<lineage>], and the record stays out of
+          // the always-on block (steering-record/v1, Record changes).
+          await flow("skill target", async () => {
+            await open(page, "steering", "&theme=dark");
+            await page.click('[data-act="newsteer"]');
+            await page.fill("#ns-text", "Name the line, the problem, and the fix in each comment.");
+            await page.check('input[name="ns-skill"][value="a-intel.platform.code-reviewer"]');
+            await page.click('[data-act="newsteer-go"]');
+            await waitPr();
+            const pr = await openedPr();
+            const body = (pr.record && pr.record.body) || "";
+            ok(/\nskills:\n  - a-intel\.platform\.code-reviewer\n/.test(body), "skill target: the record does not write skills: [a-intel.platform.code-reviewer]");
+            ok(!/\nagents:/.test(body), "skill target: the record writes an agents field the contract does not have");
+            ok(/adds nothing to the always-on total/.test(await page.innerText(".budget")), "skill target: the budget check counts a record that loads with a skill");
+            await copyCheck(page, "skill target steering PR");
+          });
+          // Records: Applies to lists each record's contract targets, and no agents.
+          await flow("applies to", async () => {
+            await open(page, "steering", "&theme=dark");
+            const cell = await page.innerText('tr[data-id="review-tone"] td.mh');
+            ok(/Skill/.test(cell) && /code-reviewer/.test(cell), "applies to: review-tone does not show its skill target");
+            ok(/Repo/.test(await page.innerText('tr[data-id="safari-flake"] td.mh')), "applies to: no record shows a repository target");
+            ok(await page.evaluate(() => STEERING.items.every((i) => !i.agents)), "applies to: a record still carries an agents list");
+            await page.click('tr[data-id="instructions"]');
+            ok(/Body over 120 words/.test(await page.innerText(".drawer")), "applies to: the 870-word always-on procedure shows no schema warning");
+          });
+          // A suggestion changes steering only through a merged steering PR (steering repo spec, Suggestions).
+          await flow("suggestion", async () => {
+            await open(page, "steering", "&theme=dark");
+            const before = await page.evaluate(() => steeringItems().length);
+            await page.click('[data-act="sug-add"]');
+            await waitPr();
+            const pr = await openedPr();
+            ok(pr.kind === "record" && /\norigin: inferred\n/.test((pr.record && pr.record.body) || ""), "suggestion: accepting it did not open a record PR with origin: inferred");
+            ok(await page.evaluate((b) => steeringItems().length === b && !steeringItems().some((i) => i.fresh), before), "suggestion: steering changed before its steering PR merged");
+            await copyCheck(page, "suggestion steering PR");
+            await page.evaluate(() => go("steering", null));
+            ok(/View steering PR #/.test(await page.innerText(".sugs")), "suggestion: the card does not link its open steering PR");
+          });
+          // The agent file: operator, runtime, and harness in agents/<name>.toml, with no per-agent servers or budget.
+          await flow("agent file", async () => {
+            await open(page, "agents", "&theme=dark");
+            await page.evaluate(() => openDrawer("agent", "triage"));
+            const d = await page.innerText(".drawer");
+            ok(/agents\/a-intel\.core\.triage\.toml/.test(d), "agent file: the drawer does not show agents/a-intel.core.triage.toml");
+            ok(!/Agents that get it/.test(await page.evaluate(() => { openDrawer("server", "github"); return document.querySelector(".drawer").innerText; })), "agent file: the server drawer still assigns servers per agent");
           });
           // Import: each dialog opens a steering PR and applies nothing until it merges.
           await flow("import", async () => {

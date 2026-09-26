@@ -162,13 +162,14 @@ DIALOGS.send = function (key, d) {
     return '<button class="pick-i' + (x.key === d.agent ? " on" : "") + '" data-act="send-agent" data-agent="' + x.key + '" aria-pressed="' + (x.key === d.agent) + '">' + agentAv(x, 30) +
       '<span class="pick-t"><b>' + h(x.name) + '</b>' + pts([hxIcon(x.harness, 12) + " " + h(hxLabel(x.harness)), h(modelLabel(x.model))]) + pts([h(x.where), money(sp) + " this month"]) + "</span></button>";
   }).join("") + "</div></div>";
-  var st = steeringNext(a), stTok = st.reduce(function (t, i) { return t + i.tok; }, 0);
-  var gets = '<div class="gets"><div><span class="k">Steering</span><b>' + plural(st.length, "item") + "</b> <span class=\"muted\">" + num(stTok) + ' tokens</span> <a href="' + href("steering") + '" data-go="steering">Change</a></div>' +
-    '<div><span class="k">MCP servers</span><b>' + a.servers.map(function (id) { return serverBy(id).name; }).join(", ") + '</b> <a href="' + href("servers") + '" data-go="servers">Change</a></div>' +
+  // Day one, every run gets the steering block for its code repository and every imported tool.
+  var st = steeringNext(repoOfWork(w.key)), stTok = Ledger.sum(st), sv = Ledger.toolServers(LEDGER_F, F.ORG.now);
+  var gets = '<div class="gets"><div><span class="k">Steering</span><b>' + plural(st.length, "steering record") + "</b> <span class=\"muted\">" + num(stTok) + ' tokens</span> <a href="' + href("steering") + '" data-go="steering">Change</a></div>' +
+    '<div><span class="k">MCP servers</span><b>' + sv.map(function (x) { return serverBy(x.id).name; }).join(", ") + '</b> <a href="' + href("servers") + '" data-go="servers">Change</a></div>' +
     '<div><span class="k">Runs on</span><b>' + h(a.where) + '</b> <span class="muted mono">' + h(a.host) + "</span></div></div>";
   return {
     title: "Send to an agent", wide: true,
-    sub: "The agent gets the work item as its first prompt, with the steering and MCP servers you set in one place.",
+    sub: "The agent gets the work item as its first prompt, with the repository's steering and the workspace's imported tools.",
     body: picker + '<div class="wi-prev">' + wiCell(w) + '<p class="muted">' + h(w.body) + "</p></div>" + agents +
       '<div class="field"><label for="send-note">Note for the agent</label><textarea id="send-note" rows="2" data-input="send-keep" placeholder="Anything to add to the brief">' + h(d.note || "") + "</textarea></div>" +
       '<div class="fields"><div class="field"><label for="send-cap">Stop the session at</label><input id="send-cap" data-input="send-keep" value="' + h(d.cap != null ? d.cap : money(a.cap)) + '"><div class="hint">The session stops when its cost reaches this.</div></div><div class="field"><label>What it gets</label>' + gets + "</div></div>",
@@ -192,12 +193,15 @@ ACTS["send-go"] = function (el) {
       { t: 0, k: "prompt", by: ME, via: "work", tok: 60 + Math.round(w.body.length / 4), text: w.key + ": " + w.title + "\n\n" + w.body + (note ? "\n\n" + note : "") },
       { t: 5.8, k: "req", n: 1, out: 140 },
       { t: 6.1, k: "say", text: "I'll read the work item and the code it points at first." },
-      { t: 6.3, k: "call", id: "n1", tool: { kind: "mcp", server: a.servers.indexOf("linear") >= 0 && w.src === "linear" ? "linear" : "github", name: w.src === "linear" && a.servers.indexOf("linear") >= 0 ? "get_issue" : "get_issue", args: { id: w.key } } },
+      { t: 6.3, k: "call", id: "n1", tool: { kind: "mcp", server: w.src === "linear" ? "linear" : "github", name: "get_issue", args: { id: w.key } } },
     ] };
-  // The steering this session starts with, fixed at send time: the recorded set plus items added here.
-  var next = steeringNext(a);
+  // The steering block this session starts with, fixed at send time: the published records plus
+  // any record a steering PR merged here.
+  var repo = repoOfWork(w.key), next = steeringNext(repo);
+  T.repo = repo;
   T.steeringCount = next.length;
-  T.extraSteering = next.filter(function (i) { return i.fresh; }).reduce(function (t, i) { return t + i.tok; }, 0);
+  T.steer = next.map(function (x) { return { id: x.id, tok: x.tok }; });
+  T.extraSteering = Ledger.sum(next) - Ledger.sum(Ledger.steeringFor(repo, LEDGER_F));
   S.sentTranscripts = S.sentTranscripts || {};
   S.sentTranscripts[id] = T;
   S.sent[w.key] = { agent: a.key, session: null };
@@ -343,33 +347,40 @@ DIALOGS.steer = function (id) {
 };
 ACTS["steer-go"] = function () { closeDialog(); toast("Queued. The agent gets it at its next turn."); };
 
-/* ============================== Agents ============================== */
+/* ============================== Agents ==============================
+   An agent is an operator, a runtime, and a harness, recorded in its file in agents/ (steering repo
+   spec, Agents). Day one, every agent gets the workspace's imported tools, and a run's steering
+   follows its code repository, so neither is listed per agent. Budgets per agent wait. */
+function agentFile(a) { return "agents/a-intel.core." + a.key + ".toml"; }
+function agentToml(a) {
+  return "#:schema https://oxagen.sh/schemas/agent/v1.json\nschema = \"agent/v1\"\nname = \"a-intel.core." + a.key + "\"\nlabel = \"" + a.name + "\"\noperator = \"" + a.operator + "\"\nruntime = \"" + a.host + "\"\nharness = \"" + a.harness + "\"";
+}
 VIEWS.agents = function () {
-  var head = phead("Agents", "The agents you run, on any harness. Each gets its steering and MCP servers from one place.", '<button class="btn primary" data-act="connect">' + g("plus", 14) + " Connect an agent</button>");
+  var head = phead("Agents", "Each agent is an operator, a runtime, and a harness, recorded in its file in the steering repo.", '<button class="btn primary" data-act="connect">' + g("plus", 14) + " Connect an agent</button>");
   if (S.empty) return { crumb: [["Agents"]], html: head + empty("agents", "No agents yet", "Connect Claude Code, Codex, Cursor or stella with one command. The agent keeps running where it runs today.", '<button class="btn primary" data-act="connect">Connect an agent</button>') };
   var all = sessions();
   var cards = AGENTS.map(function (a) {
     var ss = all.filter(function (s) { return s.agent === a.key; }), spent = ss.reduce(function (t, s) { return t + s.cost.total; }, 0), last = ss[0];
-    var st = steeringNext(a);
     var live = ss.filter(isLive)[0];
     return '<button class="panel acard" data-act="agent" data-key="' + a.key + '"><div class="acard-h">' + agentAv(a, 36) + '<div class="grow"><b>' + h(a.name) + '</b><span class="sub">' + pts([hxIcon(a.harness, 12) + " " + h(hxLabel(a.harness)), h(modelLabel(a.model))]) + "</span></div>" + (live ? statusBadge(live) : "") + "</div>" +
       '<p class="muted">' + h(a.desc) + "</p>" +
-      '<div class="acard-m"><div><span class="k">This month</span><b class="num">' + money(spent) + '</b><span class="muted">of ' + money(a.budget) + '</span></div><div class="capbar"><i style="width:' + Math.min(100, spent / a.budget * 100) + '%"></i></div></div>' +
-      '<dl class="kv"><dt>Runs on</dt><dd>' + h(a.where) + '</dd><dt>Operator</dt><dd>' + h(personName(a.operator)) + "</dd><dt>Sessions</dt><dd>" + num(ss.length) + (last ? ", last " + when(last.started) : "") + "</dd><dt>Gets</dt><dd>" + plural(st.length, "steering item") + ", " + a.servers.map(function (id) { return serverBy(id).name; }).join(", ") + "</dd></dl></button>";
+      '<div class="acard-m"><div><span class="k">This month</span><b class="num">' + money(spent) + "</b></div></div>" +
+      '<dl class="kv"><dt>Runs on</dt><dd>' + h(a.where) + '</dd><dt>Operator</dt><dd>' + h(personName(a.operator)) + "</dd><dt>Sessions</dt><dd>" + num(ss.length) + (last ? ", last " + when(last.started) : "") + '</dd><dt>File</dt><dd class="mono">' + h(agentFile(a)) + "</dd></dl></button>";
   }).join("");
   return { crumb: [["Agents"]], html: head + '<div class="grid acards">' + cards + "</div>" };
 };
 ACTS.agent = function (el) { openDrawer("agent", el.getAttribute("data-key")); };
 DRAWERS.agent = function (key) {
-  var a = agentBy(key), ss = sessions().filter(function (s) { return s.agent === key; }), st = steeringNext(a);
+  var a = agentBy(key), ss = sessions().filter(function (s) { return s.agent === key; }), sv = Ledger.toolServers(LEDGER_F, F.ORG.now);
   var spent = ss.reduce(function (t, s) { return t + s.cost.total; }, 0);
   return { title: a.name,
     head: '<div class="grow row">' + agentAv(a, 34) + '<div><h2>' + h(a.name) + '</h2><span class="muted">' + pts([hxIcon(a.harness, 12) + " " + h(hxLabel(a.harness)) + " " + h(a.harnessV), h(modelLabel(a.model))]) + "</span></div></div>",
-    body: '<p>' + h(a.desc) + '</p><div class="grid g3 tiles">' + stat("This month", money(spent), "of " + money(a.budget)) + stat("Sessions", num(ss.length), "in September") + stat("Stops each session at", a.cap ? money(a.cap) : "No limit", "") + "</div>" +
-      '<h3 class="sec">Steering it gets</h3><div class="lst">' + st.map(function (i) { return '<div class="li">' + kindBadge(i.kind) + '<span class="bd2"><span class="t1">' + h(recLabel(i)) + '</span></span><span class="muted num">' + num(i.tok) + " tok</span></div>"; }).join("") + "</div>" +
-      '<h3 class="sec">MCP servers it gets</h3><div class="lst">' + a.servers.map(function (id) { var sv = serverBy(id); return '<button class="li linkish" data-act="server" data-id="' + id + '">' + serverMark(sv, 22) + '<span class="bd2"><span class="t1">' + h(sv.name) + '</span><span class="t2">' + h(sv.auth) + "</span></span>" + g("right", 14) + "</button>"; }).join("") + "</div>" +
+    body: '<p>' + h(a.desc) + '</p><div class="grid g3 tiles">' + stat("This month", money(spent), "") + stat("Sessions", num(ss.length), "in September") + stat("Last session", ss[0] ? when(ss[0].started) : "None yet", "") + "</div>" +
+      '<h3 class="sec">File</h3><div class="readout"><div class="rh"><span class="mono">' + h(agentFile(a)) + '</span></div><pre>' + h(agentToml(a)) + "</pre></div>" +
+      '<p class="muted small">Cedar reads this file as the principal <code>Agent::"a-intel.core.' + h(a.key) + '"</code>. A run\'s steering comes from its code repository.</p>' +
+      '<h3 class="sec">MCP servers</h3><p class="muted small">Every agent in the workspace gets the imported tools of these servers, and policies narrow what it may call.</p><div class="lst">' + sv.map(function (x) { var one = serverBy(x.id); return '<button class="li linkish" data-act="server" data-id="' + x.id + '">' + serverMark(one, 22) + '<span class="bd2"><span class="t1">' + h(one.name) + '</span><span class="t2">' + h(one.auth) + "</span></span>" + g("right", 14) + "</button>"; }).join("") + "</div>" +
       '<h3 class="sec">Recent sessions</h3><div class="lst">' + ss.slice(0, 6).map(sessRowCompact).join("") + "</div>" +
-      '<h3 class="sec">Where it runs</h3><dl class="kv"><dt>Host</dt><dd class="mono">' + h(a.host) + "</dd><dt>Operator</dt><dd>" + h(personName(a.operator)) + "</dd><dt>Connected</dt><dd>" + h(a.enrolled) + "</dd></dl>" };
+      '<h3 class="sec">Where it runs</h3><dl class="kv"><dt>Runtime</dt><dd class="mono">' + h(a.host) + "</dd><dt>Operator</dt><dd>" + h(personName(a.operator)) + "</dd><dt>Connected</dt><dd>" + h(a.enrolled) + "</dd></dl>" };
 };
 ACTS.connect = function () { openDialog("connect"); };
 DIALOGS.connect = function (arg, d) {
@@ -379,7 +390,7 @@ DIALOGS.connect = function (arg, d) {
     body: '<div class="field"><label>Harness</label><div class="seg wide">' + ["claude-code", "codex-cli", "cursor", "stella"].map(function (k) {
       return '<button class="btn sm" data-act="connect-h" data-h="' + k + '" aria-pressed="' + (d.h === k) + '">' + hxIcon(k, 14) + " " + h(hxLabel(k)) + "</button>";
     }).join("") + '</div></div><div class="field"><label>Command</label><div class="cmdline"><code>' + h(cmd) + "</code>" + copyBtn(cmd) + '</div><div class="hint">The token works once and expires in 24 hours.</div></div>' +
-      '<div class="note">oxagen writes the steering and the MCP servers into ' + h(hxLabel(d.h)) + "'s own files, and records every session from then on.</div>",
+      '<div class="note">Enrolling opens a steering PR that adds the agent\'s file to <code>agents/</code>. Until it merges, the agent runs under the workspace\'s policies alone. oxagen records every session from then on.</div>',
     foot: '<span class="grow muted">Waiting for the first session…</span><button class="btn" data-act="close">Close</button><button class="btn primary" data-act="connect-done">I ran it</button>' };
 };
 ACTS["connect-h"] = function (el) { S.dialog.h = el.getAttribute("data-h"); renderLayer(); };
@@ -445,26 +456,59 @@ function scopeCell(it) {
   if (it.scope === "repository") return (it.repos || []).map(function (r) { return '<span class="chip mono">' + h(r.replace(/^github\.com\//, "")) + "</span>"; }).join(" ");
   return "";
 }
+/* A record's Applies to: its steering-record/v1 targets (repos, tools, skills, and applies_to path
+   globs). A record with none reaches every run in the workspace. */
+function skillByLineage(l) { return STEERING.items.filter(function (i) { return i.kind === "skill" && i.lineage === l; })[0]; }
+function targetCell(it) {
+  if (it.scope === "organization") return scopeCell(it);
+  if (it.kind === "memory") return '<span class="muted">Recalled when relevant</span>';
+  var chip = function (k, v) { return '<span class="chip"><span class="ck">' + k + '</span><span class="mono">' + h(v) + "</span></span>"; };
+  var out = [].concat(
+    (it.repos || []).map(function (r) { return chip("Repo", r.replace(/^github\.com\//, "")); }),
+    (it.tools || []).map(function (t) { return chip("Tool", t); }),
+    (it.skills || []).map(function (l) { var sk = skillByLineage(l); return chip("Skill", sk ? recLabel(sk) : l); }),
+    (it.applies_to || []).map(function (g) { return chip("Path", g); }));
+  return out.length ? '<span class="tgts">' + out.join("") + "</span>" : '<span class="muted">Every run</span>';
+}
+/* A suggestion changes steering only through a steering PR. Accepting one opens that PR, and the
+   record reaches sessions once it merges. */
+function suggestionOpen(sg) { var n = S.accepted[sg.id], pr = n && prBy(n); return !S.dismissed[sg.id] && !(pr && pr.state === "merged"); }
+function acceptSuggestion(id) {
+  var sg = STEERING.suggestions.filter(function (x) { return x.id === id; })[0], n = nextPrNumber();
+  var body = ["---", "schema: steering-record/v1", "lineage: " + sg.lineage, "label: " + sg.label, "kind: " + sg.kind, "force: " + sg.force, "scope: workspace", "status: active", "origin: inferred", "---", "", sg.text].join("\n");
+  var rec = { lineage: sg.lineage, label: sg.label, kind: sg.kind, force: sg.force, scope: "workspace", repos: null, tools: [], applies_to: [], skills: [], text: sg.text, tok: sg.tok, path: "steering/platform/" + sg.lineage + ".md", body: body };
+  var over = budgetRows(rec).some(function (r) { return r.over; });
+  S.newPrs.push({ n: n, kind: "record", state: "open", title: "Add " + sg.label, branch: "steering/" + sg.lineage.split(".").slice(2).join("-"), by: ME, via: "web", opened: F.ORG.now, approvals: [],
+    summary: "Adds one record from a suggestion. Sessions get it once this merges and oxagen publishes the next version. oxagen writes its id and hash when it merges.",
+    record: rec,
+    checks: [{ id: "schema", r: "pass" }, { id: "lineage", r: "pass" }, { id: "secrets", r: "pass" }, { id: "conflicts", r: "pass" }, { id: "authority", r: "pass" }, { id: "budget", r: over ? "warn" : "pass" }, { id: "owned", r: "pass" }] });
+  S.accepted[id] = n;
+  return n;
+}
 function steeringRecords() {
-  var items = steeringItems(), sugg = STEERING.suggestions.filter(function (s) { return !S.accepted[s.id] && !S.dismissed[s.id]; });
+  var items = steeringItems(), sugg = STEERING.suggestions.filter(suggestionOpen);
   var sugHtml = sugg.map(function (sg) {
     var from = sg.from, T = F.TRANSCRIPTS[from.session], why;
     if (from.said) why = h(personName(from.by)) + " told " + h(agentBy(T.agent).name) + " “" + h(from.said) + "” in " + '<a href="' + href("sessions", from.session) + '" data-go="sessions|' + from.session + '">' + h(T.title) + "</a>.";
     else why = h(agentBy(T.agent).name) + " failed the release notes lint in " + from.sessions + " of its last 5 sessions. The fix-up in " + '<a href="' + href("sessions", from.session) + '" data-go="sessions|' + from.session + '">' + h(T.title) + "</a> cost " + money(suggestionFixup(sg)) + ".";
-    return '<div class="sug"><div class="grow">' + kindBadge(sg.kind, "Suggested ") + '<p class="sug-t">' + h(sg.text) + '</p><p class="muted small">' + why + '</p></div><div class="row"><button class="btn sm primary-soft" data-act="sug-add" data-id="' + sg.id + '">Add it</button><button class="btn sm ghost" data-act="sug-dismiss" data-id="' + sg.id + '">Dismiss</button></div></div>';
+    var acts = S.accepted[sg.id] ? '<a class="btn sm" href="' + href("steering", "pr-" + S.accepted[sg.id]) + '" data-go="steering|pr-' + S.accepted[sg.id] + '">View steering PR #' + S.accepted[sg.id] + "</a>" :
+      '<button class="btn sm primary-soft" data-act="sug-add" data-id="' + sg.id + '">Open steering PR</button><button class="btn sm ghost" data-act="sug-dismiss" data-id="' + sg.id + '">Dismiss</button>';
+    return '<div class="sug"><div class="grow">' + kindBadge(sg.kind, "Suggested ") + '<p class="sug-t">' + h(sg.text) + '</p><p class="muted small">' + why + '</p></div><div class="row">' + acts + "</div></div>";
   }).join("");
-  var totals = AGENTS.map(function (a) { return Ledger.steeringFor(a, LEDGER_F).reduce(function (t, i) { return t + i.tok; }, 0); });
-  var monthCost = sessions().reduce(function (t, s) { var c = 0; for (var k in s.cost.by) if (k === "steering" || /^skill:/.test(k)) c += s.cost.by[k]; return t + c; }, 0);
+  // The steering block depends on the run's code repository, so the range runs over the linked ones.
+  var totals = REPO.linked.map(function (r) { return Ledger.sum(steeringNext(r.url)); });
+  var lo = Math.min.apply(null, totals), hi = Math.max.apply(null, totals);
+  var monthCost = sessions().reduce(function (t, s) { var c = 0; for (var k in s.cost.by) if (k === "steering" || k === "memory" || /^skill:/.test(k)) c += s.cost.by[k]; return t + c; }, 0);
   var rows = items.map(function (it) {
     var st = steeringStats(it);
     return '<tr class="click" data-act="steeritem" data-id="' + it.id + '"><td>' + kindBadge(it.kind) + '<span class="sub">' + h(it.force || "") + '</span></td><td><span class="stx">' + h(recLabel(it)) + "</span>" + (it.label || it.title ? '<span class="sub">' + h(it.text) + "</span>" : "") + (it.fresh ? ' <span class="b b-allowed">New</span>' : "") + "</td>" +
-      '<td class="mh">' + (it.scope === "organization" || it.scope === "repository" ? scopeCell(it) : it.agents === "all" ? '<span class="muted">Every agent</span>' : it.agents.map(function (k) { return '<span class="chip">' + h(agentBy(k).name) + "</span>"; }).join(" ")) + "</td>" +
-      '<td class="num">' + num(it.tok) + '</td><td class="num mh">' + (it.kind === "skill" ? plural(st.sessions, "load") : plural(st.sessions, "session")) + '</td><td class="num">' + money(st.cost) + "</td></tr>";
+      '<td class="mh">' + targetCell(it) + "</td>" +
+      '<td class="num">' + num(it.tok) + '</td><td class="num mh">' + (it.kind === "skill" ? plural(st.loads, "load") : plural(st.sessions, "session")) + '</td><td class="num">' + money(st.cost) + "</td></tr>";
   }).join("");
   return repoCard() + (sugHtml ? '<div class="panel sugs"><div class="panel-h"><h3>Suggestions from sessions</h3><span class="sp muted">' + plural(sugg.length, "suggestion") + "</span></div>" + sugHtml + "</div>" : "") +
-    '<div class="panel"><div class="panel-h"><h3>Records</h3><span class="sp muted">Each session starts with ' + num(Math.min.apply(null, totals)) + " to " + num(Math.max.apply(null, totals)) + " tokens of steering. It cost " + money(monthCost) + ' this month.</span></div><div class="tw"><table><thead><tr><th>Kind</th><th>Record</th><th class="mh">Applies to</th><th class="num">Tokens</th><th class="num mh">This month</th><th class="num">Cost</th></tr></thead><tbody>' + rows + "</tbody></table></div></div>";
+    '<div class="panel"><div class="panel-h"><h3>Records</h3><span class="sp muted">Each session starts with ' + (lo === hi ? num(lo) : num(lo) + " to " + num(hi)) + " tokens of steering, by code repository. Steering cost " + money(monthCost) + ' this month.</span></div><div class="tw"><table><thead><tr><th>Kind</th><th>Record</th><th class="mh">Applies to</th><th class="num">Tokens</th><th class="num mh">This month</th><th class="num">Cost</th></tr></thead><tbody>' + rows + "</tbody></table></div></div>";
 }
-ACTS["sug-add"] = function (el) { S.accepted[el.getAttribute("data-id")] = true; toast("Added. Every session gets it from now on."); render(); };
+ACTS["sug-add"] = function (el) { var n = acceptSuggestion(el.getAttribute("data-id")); go("steering", "pr-" + n); toast("Opened steering PR #" + n + ". Sessions get the record once it merges."); };
 ACTS["sug-dismiss"] = function (el) { S.dismissed[el.getAttribute("data-id")] = true; render(); };
 
 /* ---- the Steering PRs tab ---- */
@@ -516,8 +560,9 @@ function steeringRepoTab() {
     '<div class="panel"><div class="panel-h"><h3>Governance</h3></div><div class="panel-b"><dl class="kv">' +
       "<dt>Mode</dt><dd>" + h(gov.mode === "team" ? "Team: one approval from a member other than the author" : gov.mode) + "</dd>" +
       "<dt>Reviewer groups</dt><dd>" + gov.reviewers.map(function (r) { return "<code>" + h(r.group) + "</code> reviews " + r.paths.map(function (p) { return "<code>" + h(p) + "</code>"; }).join(" and "); }).join("<br>") + "</dd>" +
-      "<dt>Always-on budget</dt><dd>" + (gov.always_on_tokens ? num(gov.always_on_tokens) + " tokens. A steering PR over it fails." : "Not set. The workspace inherits oxagen's default of " + num(gov.defaultBudget) + " tokens, which only warns.") + "</dd>" +
-      "<dt>Memory</dt><dd>A memory PR every " + num(gov.memory.batch_size) + " candidates or once a day. A candidate needs " + num(gov.memory.min_runs) + " distinct sessions.</dd></dl></div></div></div>" +
+      "<dt>Always-on budget</dt><dd>" + (gov.always_on_tokens === "off" ? "Off. The budget check does not run." : gov.always_on_tokens ? num(gov.always_on_tokens) + " tokens per code repository. The budget check warns past it and never blocks." : "Not set. The workspace inherits oxagen's default of " + num(gov.defaultBudget) + " tokens per code repository, which only warns.") + "</dd>" +
+      "<dt>Memory</dt><dd>A memory PR once a day, or when " + num(gov.memory.batch_size) + " memories wait. A memory no run recalled in " + num(gov.memory.retire_after_days) + " days is proposed for archiving. " + (gov.memory.recall_unreviewed === "off" ? "An unreviewed memory steers nothing." : "An unreviewed memory steers only the agent that wrote it, at force <code>info</code>.") + " " + (gov.memory.auto_merge ? "Memory PRs merge on their own." : "A person merges each memory PR.") + "</dd>" +
+      "<dt>Ledger</dt><dd>A new file each " + h(gov.ledger.rotate) + ", or at " + num(gov.ledger.max_lines) + " lines</dd></dl></div></div></div>" +
     '<div class="panel"><div class="panel-h"><h3>Settings oxagen holds</h3><span class="sp">' + repair + '</span></div><div class="tw"><table><thead><tr><th>Setting</th><th class="mh">Prescribed</th><th>Now</th></tr></thead><tbody>' + settings + "</tbody></table></div></div>" +
     '<div class="panel"><div class="panel-h"><h3>Linked code repositories</h3><span class="sp"><button class="btn sm" data-act="linkrepo">' + g("plus", 13) + ' Link a repository</button></span></div><div class="tw"><table><thead><tr><th>Repository</th><th class="mh">Linked</th><th>Workspaces</th></tr></thead><tbody>' + linked + '</tbody></table></div><p class="muted small pad-s">Linking opens a steering PR that adds the repository to <code>workspace.toml</code>. A repository can belong to many workspaces.</p></div>' +
     '<div class="grid g2"><div class="panel"><div class="panel-h"><h3>Organization records</h3><span class="sp muted">' + repoLink(REPO.org.name, REPO.org.url) + '</span></div><div class="panel-b"><p class="muted small">Every workspace in ' + h(ORG.slug) + " inherits these. A narrower record may narrow one and never widens it.</p>" + (orgRecs ? '<div class="lst">' + orgRecs + "</div>" : "") + "</div></div>" +
@@ -570,13 +615,13 @@ function checksPanel(pr) {
    where it comes from, and the largest always-on records with their token counts. It only warns. */
 function budgetDetail(rec) {
   return budgetRows(rec).map(function (r) {
-    var line = !r.adds ? "The record names a target or loads when it fits, so it adds nothing to the always-on total." : r.over ? (r.set ? "Over the workspace budget. The check warns and passes." : "Over oxagen's default of " + num(r.budget) + " tokens. The default only warns, so the check passes.") : "Under the budget.";
+    var line = !r.adds ? "The record loads with a skill, on a matching path, or when it fits, so it adds nothing to the always-on total." : r.over ? (r.set ? "Over the workspace budget. The check warns and passes." : "Over oxagen's default of " + num(r.budget) + " tokens. The default only warns, so the check passes.") : "Under the budget.";
     return '<div class="budget"><div class="bd-h"><b>Always-on steering</b> <span class="mono muted">' + h(r.repo) + '</span></div><div class="bd-n"><span>Before <b class="num">' + num(r.before) + '</b></span><span>After <b class="num">' + num(r.after) + '</b></span><span>Budget <b class="num">' + num(r.budget) + "</b> " + (r.set ? "<code>steering/governance.toml</code>" : "oxagen's default") + "</span></div>" +
       '<div class="capbar' + (r.over ? " over" : "") + '"><i style="width:' + Math.min(100, r.after / r.budget * 100).toFixed(1) + '%"></i></div><p class="small">' + h(line) + "</p>" +
       '<table class="narrow mini"><thead><tr><th class="num">Tokens</th><th>Largest always-on records</th><th class="mh">Kind</th></tr></thead><tbody>' + r.largest.map(function (x) {
         return '<tr><td class="num">' + num(x.tok) + '</td><td class="mono">' + h(x.lineage) + (x.fresh ? ' <span class="b b-approval">This PR</span>' : "") + '</td><td class="mh">' + h(kindLabel(x.kind)) + ", " + h(x.force) + "</td></tr>";
       }).join("") + "</tbody></table>" +
-      (r.over ? '<p class="small muted">To keep this cost, merge as is, or raise <code>always_on_tokens</code> in this PR. To cut it, shorten a record, set <code>force: may</code> so it loads when it fits, or narrow it with <code>repos</code>, <code>applies_to</code>, or <code>tools</code>.</p>' : "") + "</div>";
+      (r.over ? '<p class="small muted">To keep this cost, merge as is, or raise <code>always_on_tokens</code> in this PR. To cut it, shorten a record, set <code>force: may</code> so it loads when it fits, or narrow it with <code>repos</code>, <code>tools</code>, <code>skills</code>, or <code>applies_to</code>.</p>' : "") + "</div>";
   }).join("");
 }
 function reviewPanel(pr) {
@@ -602,7 +647,7 @@ function filesPanel(pr) {
 }
 /* The memory PR: each memory with the sessions it came from, and Drop. */
 function memoryCards(pr) {
-  return '<div class="panel"><div class="panel-h"><h3>Memories</h3><span class="hnote">A merged memory becomes a record under <code>steering/memory/</code>.</span></div>' + pr.memories.map(function (m) {
+  return '<div class="panel"><div class="panel-h"><h3>Memories</h3><span class="hnote">Each kept item lands as a memory, or as a rule or a fact when that fits better.</span></div>' + pr.memories.map(function (m) {
     var k = pr.n + "." + m.id, dropped = !!S.dropped[k], a = agentBy(m.agent), c = m.contradicts ? steeringItems().filter(function (i) { return i.id === m.contradicts; })[0] : null;
     var ev = m.evidence.map(function (e) {
       var s = sessionBy(e.s);
@@ -610,7 +655,7 @@ function memoryCards(pr) {
     }).join("");
     return '<div class="mem' + (dropped ? " dropped" : "") + '"><div class="mem-h">' + kindBadge("memory") + '<span class="mono muted small">' + h(m.lineage) + '</span><span class="sp">' +
         (pr.state === "merged" ? "" : dropped ? '<button class="btn sm" data-act="mem-keep" data-k="' + k + '">Keep it</button>' : '<button class="btn sm danger" data-act="mem-drop" data-k="' + k + '">Drop</button>') + "</span></div>" +
-      '<p class="mem-t">' + h(m.text) + '</p><div class="mem-meta">' + pts([h(a.name), m.repos.map(function (r) { return h(r); }).join(", "), num(m.tok) + " tokens", plural(m.evidence.length, "distinct session")]) + "</div>" +
+      '<p class="mem-t">' + h(m.text) + '</p><div class="mem-meta">' + pts([h(a.name), m.repos.map(function (r) { return h(r); }).join(", "), num(m.tok) + " tokens", "Lands as " + kindLabel(m.lands || "memory").toLowerCase(), plural(m.evidence.length, "evidence session")]) + "</div>" +
       (c ? '<div class="warn small"><b>Contradicts an active record.</b> ' + h(recLabel(c)) + ' (<code>' + h(c.lineage) + "</code>) says: " + h(c.text) + "</div>" : "") +
       (dropped ? '<p class="small muted">Dropped. oxagen pushes a commit that removes the file and records the rejection, so the lesson returns only with new evidence.</p>' : '<h4 class="ev-h">Evidence</h4><div class="lst">' + ev + "</div>") + "</div>";
   }).join("") + "</div>";
@@ -702,23 +747,28 @@ function surfaceDiff(pr, withDefs) {
   return '<div class="panel"><div class="panel-h"><h3>Tool surface diff</h3><span class="sp"><a href="' + href("servers", sv.id) + '" data-go="servers|' + sv.id + '">' + h(sv.name) + '</a></span></div><div class="tsd">' + blocks + "</div>" + (defs ? '<div class="panel-b">' + defs + "</div>" : "") + "</div>";
 }
 
+function words(t) { return String(t || "").split(/\s+/).filter(Boolean).length; }
 /* ---- the record drawer: what the model receives, and the file in the steering repo ---- */
 ACTS.steeritem = function (el) { openDrawer("steeritem", el.getAttribute("data-id")); };
 DRAWERS.steeritem = function (id) {
   var it = steeringItems().filter(function (i) { return i.id === id; })[0], st = steeringStats(it);
-  var text = it.body || it.text, always = it.force === "must" || it.force === "should";
-  var receives = it.kind === "skill" ? "## More steering\n\nRead any of these with steering_read when it fits the task.\n- " + recLabel(it) + ": " + it.text + " (" + it.lineage + ")" :
+  var text = it.body || it.text, onSkill = !!(it.skills && it.skills.length), always = isAlwaysOn(it);
+  var bodyWords = it.words || words(it.body || it.text);
+  var skillNames = (it.skills || []).map(function (l) { var sk = skillByLineage(l); return sk ? recLabel(sk) : l; });
+  var receives = onSkill ? "## Skill rules: " + skillNames.join(", ") + "\n\n### " + recLabel(it) + "\n" + text + "\n\n(sent once the session loads the skill)" :
+    it.kind === "skill" ? "## More steering\n\nRead any of these with steering_read when it fits the task.\n- " + recLabel(it) + ": " + it.text + " (" + it.lineage + ")" :
     it.kind === "memory" ? "## Memories\n\n- " + it.text + "\n\n(recalled when relevant: at most 5 memories and 800 tokens a request)" :
     "## Workspace rules\n\n### " + recLabel(it) + "\n" + text;
   var fm = "---\nschema: steering-record/v1\nlineage: " + it.lineage + "\nlabel: " + recLabel(it) + "\nkind: " + it.kind + "\nforce: " + it.force + (it.effect ? "\neffect: " + it.effect : "") + "\nscope: " + it.scope +
-    [].concat(yamlList("repos", it.repos), yamlList("tools", it.tools), yamlList("applies_to", it.applies_to)).map(function (l) { return "\n" + l; }).join("") + "\nstatus: active\n---";
+    [].concat(yamlList("repos", it.repos), yamlList("tools", it.tools), yamlList("skills", it.skills), yamlList("applies_to", it.applies_to)).map(function (l) { return "\n" + l; }).join("") + "\nstatus: active\n---";
   var org = it.scope === "organization";
   return { title: recLabel(it),
     head: '<div class="grow">' + kindBadge(it.kind) + " <span class=\"muted mono small\">" + h(it.force) + "</span><h2>" + h(recLabel(it)) + "</h2></div>",
     body: (org ? '<div class="banner"><div class="grow"><b>From ' + h(REPO.org.name) + "</b>Every workspace in " + h(ORG.slug) + " inherits it. Change it by steering PR in " + repoLink(REPO.org.name, REPO.org.url) + ".</div></div>" : "") +
       '<div class="field"><label for="st-text">' + (it.kind === "skill" ? "Description" : "Body") + '</label><textarea id="st-text" rows="' + (it.kind === "procedure" ? 16 : 3) + '" class="mono"' + (org ? " readonly" : "") + ">" + h(it.kind === "skill" ? it.text : text) + "</textarea></div>" +
-      '<div class="grid g3 tiles">' + stat("Tokens", num(it.tok), it.kind === "skill" ? "when loaded" : always ? "on every request" : "when recalled") + stat(it.kind === "skill" ? "Loads" : "Sessions", num(st.sessions), "this month") + stat("Cost", money(st.cost), "this month") + "</div>" +
-      '<h3 class="sec">What the model receives</h3><div class="readout"><div class="rh"><span>Through the cloud gateway</span><span class="sp">' + (always ? "every request" : it.kind === "skill" ? "the index line, then the body on demand" : "when relevant") + "</span></div><pre>" + h(receives) + "</pre></div>" +
+      '<div class="grid g3 tiles">' + stat("Tokens", num(it.tok), it.kind === "skill" ? "when loaded" : onSkill ? "with the skill" : always ? "on every request" : "when recalled") + stat(it.kind === "skill" ? "Loads" : "Sessions", num(it.kind === "skill" ? st.loads : st.sessions), "this month") + stat("Cost", money(st.cost), "this month") + "</div>" +
+      (always && bodyWords > 120 ? '<div class="banner"><div class="grow"><b>Body over 120 words</b>It runs ' + num(bodyWords) + ' words. The schema check warns when an always-on body passes 120 words. One record per rule clears the warning.</div></div>' : "") +
+      '<h3 class="sec">What the model receives</h3><div class="readout"><div class="rh"><span>Through the cloud gateway</span><span class="sp">' + (always ? "every request" : onSkill ? "with the skill" : it.kind === "skill" ? "the index line, then the body on demand" : "when relevant") + "</span></div><pre>" + h(receives) + "</pre></div>" +
       '<h3 class="sec">File</h3><div class="readout"><div class="rh"><span class="mono">' + h((org ? REPO.org.name + "/" : "") + it.path) + '</span></div><pre>' + h(fm) + "</pre></div>" +
       '<p class="muted small">Code repositories hold no oxagen files. A skill reaches the harness at session start from outside the repository.</p>' +
       (it.from ? '<p class="muted small">' + h(it.from) + ". Accepted by " + h(personName(it.by)) + ".</p>" : "") +
@@ -743,6 +793,7 @@ DIALOGS.newsteer = function () {
       '<div class="field"><label for="ns-text">Body</label><textarea id="ns-text" rows="3" autofocus placeholder="Run pnpm release:lint before you commit release notes."></textarea></div>' +
       '<h3 class="sec">Applies to</h3><p class="muted small">It reaches every run unless a target below narrows it.</p>' +
       '<div class="field"><label>Repositories</label><div class="agpick">' + REPO.linked.map(function (r) { return '<label class="check"><input type="checkbox" name="ns-repo" value="' + h(r.url) + '"><span class="grow"><span class="n mono">' + h(r.url) + "</span></span></label>"; }).join("") + '</div><div class="hint">None ticked reaches every linked repository.</div></div>' +
+      '<div class="field"><label>Skills</label><div class="agpick">' + STEERING.items.filter(function (i) { return i.kind === "skill"; }).map(function (sk) { return '<label class="check"><input type="checkbox" name="ns-skill" value="' + h(sk.lineage) + '"><span class="grow"><span class="n mono">' + h(recLabel(sk)) + '</span><span class="muted small"> ' + h(sk.text) + "</span></span></label>"; }).join("") + '</div><div class="hint">A record that targets a skill loads with it and stays out of the always-on block.</div></div>' +
       '<div class="fields"><div class="field"><label for="ns-tools">Tools</label><input id="ns-tools" class="mono" placeholder="billing__create_refund, stripe__*"><div class="hint">It reaches a request only when the run holds a match.</div></div>' +
       '<div class="field"><label for="ns-paths">Paths</label><input id="ns-paths" class="mono" placeholder="packages/api/**"><div class="hint">It reaches a turn that touches a match.</div></div></div>',
     foot: '<button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="newsteer-go">Open steering PR</button>' };
@@ -765,13 +816,15 @@ ACTS["newsteer-go"] = function () {
   var n = nextPrNumber(), text = (document.getElementById("ns-text") || {}).value || "Run pnpm release:lint before you commit release notes.";
   var kindName = (document.getElementById("ns-kind") || {}).value || "Business rule", force = (document.getElementById("ns-force") || {}).value || "must";
   var repos = Array.prototype.slice.call(document.querySelectorAll('input[name="ns-repo"]:checked')).map(function (el) { return el.value; });
+  var skills = Array.prototype.slice.call(document.querySelectorAll('input[name="ns-skill"]:checked')).map(function (el) { return el.value; });
   var tools = listField("ns-tools"), paths = listField("ns-paths"), scope = repos.length ? "repository" : "workspace";
+  var skillName = function (l) { var sk = skillByLineage(l); return sk ? recLabel(sk) : l; };
   var code = function (x) { return "`" + x + "`"; };
-  var reach = [repos.length ? "its repository is " + orList(repos.map(code)) : "", tools.length ? "it holds " + orList(tools.map(code)) : "", paths.length ? "it touches " + orList(paths.map(code)) : ""].filter(Boolean);
+  var reach = [repos.length ? "its repository is " + orList(repos.map(code)) : "", tools.length ? "it holds " + orList(tools.map(code)) : "", skills.length ? "it loads " + orList(skills.map(skillName).map(code)) : "", paths.length ? "it touches " + orList(paths.map(code)) : ""].filter(Boolean);
   var kind = Object.keys(KINDS).filter(function (k) { return KINDS[k] === kindName; })[0] || "business-rule";
   var lineage = "a-intel.platform." + slugify(text).split("-").slice(0, 4).join("-"), label = labelFrom(text);
-  var body = ["---", "schema: steering-record/v1", "lineage: " + lineage, "label: " + label, "kind: " + kind, "force: " + force, "scope: " + scope].concat(yamlList("repos", repos), yamlList("tools", tools), yamlList("applies_to", paths), ["status: active", "origin: user", "---", "", text]).join("\n");
-  var rec = { lineage: lineage, label: label, kind: kind, force: force, scope: scope, repos: repos.length ? repos : null, tools: tools, applies_to: paths, tok: Math.round((label.length + text.length) / 4) + 8, path: "steering/platform/" + lineage + ".md", body: body };
+  var body = ["---", "schema: steering-record/v1", "lineage: " + lineage, "label: " + label, "kind: " + kind, "force: " + force, "scope: " + scope].concat(yamlList("repos", repos), yamlList("tools", tools), yamlList("skills", skills), yamlList("applies_to", paths), ["status: active", "origin: user", "---", "", text]).join("\n");
+  var rec = { lineage: lineage, label: label, kind: kind, force: force, scope: scope, repos: repos.length ? repos : null, tools: tools, applies_to: paths, skills: skills, text: text, tok: Math.round((label.length + text.length) / 4) + 8, path: "steering/platform/" + lineage + ".md", body: body };
   var over = budgetRows(rec).some(function (r) { return r.over; });
   S.newPrs.push({ n: n, kind: "record", state: "open", title: text.length > 60 ? text.slice(0, 57) + "..." : text, branch: "steering/" + lineage.split(".").slice(2).join("-"), by: ME, via: "web", opened: F.ORG.now, approvals: [],
     summary: "Adds one record. It reaches " + (reach.length ? "a run only when " + reach.join(" and ") : "every run in the workspace") + ". oxagen writes its id and hash when it merges.",
@@ -852,16 +905,19 @@ DIALOGS.workspaces = function () {
     foot: '<button class="btn" data-act="close">Close</button><button class="btn primary" data-act="newws">' + g("plus", 14) + " New workspace</button>" };
 };
 ACTS.newws = function () { openDialog("newworkspace"); };
-/* Provisioning, by step. The first attempt fails at Apply the settings, the way it does when the
-   GitHub App lacks Administration write, so the failed step and Retry show. Every step is safe to
-   repeat. ?prov=failed and ?prov=done pin a state for a story. */
+/* Provisioning, by step (steering repo spec, Provisioning). The first attempt stops at Create the
+   repository, the way it does when the organization owner whose token adds new repositories to the
+   installation has left: GitHub refuses, and the step fails. Any other organization owner
+   re-authorizes once, and Retry then finishes. Every step is safe to repeat. ?prov=failed and
+   ?prov=done pin a state for a story. */
+function provOwner() { var k = Object.keys(PEOPLE).filter(isOrgAdmin)[0]; return k ? personName(k) : "an organization owner"; }
 DIALOGS.newworkspace = function (arg, d) {
   var steps = STEERING.provision.steps;
   if (d.q && !d.init) {
     d.init = true;
     if (d.q.name) d.ws = decodeURIComponent(d.q.name);
-    if (d.q.prov === "failed") { d.ws = d.ws || "Payments ops"; d.phase = "run"; d.at = 3; d.failed = true; }
-    if (d.q.prov === "done") { d.ws = d.ws || "Payments ops"; d.phase = "run"; d.at = steps.length; d.retried = true; }
+    if (d.q.prov === "failed") { d.ws = d.ws || "Payments ops"; d.phase = "run"; d.at = 1; d.failed = true; }
+    if (d.q.prov === "done") { d.ws = d.ws || "Payments ops"; d.phase = "run"; d.at = steps.length; d.reauth = true; }
   }
   if (!d.phase) {
     return { title: "New workspace", sub: "oxagen creates the workspace and its steering repo from the name.",
@@ -873,25 +929,31 @@ DIALOGS.newworkspace = function (arg, d) {
     var st = i < d.at ? "done" : i === d.at ? (d.failed ? "failed" : "running") : "wait";
     var ic = st === "done" ? g("check", 13) : st === "failed" ? g("x", 13) : st === "running" ? '<span class="spin"></span>' : String(i + 1);
     return '<div class="prov-step st-' + st + '"><span class="prov-i">' + ic + '</span><div class="grow"><b>' + h(s.t) + '</b><span class="sub">' + (s.k === "create" ? "<code>" + h(repo) + "</code>, private" : mdi(s.d)) + "</span>" +
-      (st === "failed" ? '<div class="warn small">' + mdi(s.error) + " " + h(s.fix) + "</div>" : "") + "</div></div>";
+      (st === "failed" ? '<div class="warn small">' + mdi(s.error) + " " + h(s.fix) + "</div>" : "") +
+      (s.k === "create" && d.reauth && i >= d.at ? '<div class="small muted">' + h(personName(d.reauth === true ? viewer() : d.reauth)) + " re-authorized. Retry finishes the step.</div>" : "") + "</div></div>";
   }).join("");
+  var owner = isOrgAdmin(viewer());
+  var failFoot = (d.reauth ? "" : owner ? "" : '<span class="grow muted small">Ask an organization owner, such as ' + h(provOwner()) + ", to re-authorize.</span>") +
+    '<button class="btn" data-act="close">Cancel</button>' + (owner && !d.reauth ? '<button class="btn" data-act="nws-retry">Retry</button><button class="btn primary" data-act="nws-reauth">Re-authorize</button>' : '<button class="btn' + (d.reauth ? " primary" : "") + '" data-act="nws-retry">Retry</button>');
   return { title: done ? d.ws + " is ready" : d.failed ? "Setting up " + d.ws + " stopped" : "Setting up " + d.ws, sub: done ? "Its steering repo is published at version 1." : "The target is 15 seconds from Create to an open workspace.",
     body: '<div class="prov">' + list + "</div>",
-    foot: d.failed ? '<button class="btn" data-act="close">Cancel</button><button class="btn primary" data-act="nws-retry">Retry</button>' :
+    foot: d.failed ? failFoot :
       done ? '<button class="btn primary" data-act="nws-open">Open the workspace</button>' : '<span class="grow">Step ' + (d.at + 1) + " of " + steps.length + '</span><button class="btn" data-act="close">Run in the background</button>' };
 };
 ACTS["nws-name"] = function (el) { S.dialog.ws = el.value; var hint = el.parentNode.querySelector(".hint code"); if (hint) hint.textContent = steeringRepoFor(el.value || "Payments ops"); };
 function provTick(d) {
   setTimeout(function () {
     if (S.dialog !== d || d.failed) return;
-    d.at++;
-    if (d.at === 3 && !d.retried) d.failed = true;
+    // Until an owner re-authorizes, Create the repository fails again on every retry.
+    if (d.at === 1 && !d.reauth) d.failed = true;
+    else { d.at++; if (d.at === 1 && !d.reauth) d.failed = true; }
     renderLayer();
     if (!d.failed && d.at < STEERING.provision.steps.length) provTick(d);
   }, 650);
 }
 ACTS["nws-go"] = function () { var d = S.dialog; d.ws = (d.ws || "").trim() || "Payments ops"; d.phase = "run"; d.at = 0; renderLayer(); provTick(d); };
-ACTS["nws-retry"] = function () { var d = S.dialog; d.failed = false; d.retried = true; renderLayer(); provTick(d); };
+ACTS["nws-retry"] = function () { var d = S.dialog; d.failed = false; renderLayer(); provTick(d); };
+ACTS["nws-reauth"] = function () { S.dialog.reauth = viewer(); toast("Re-authorized. oxagen can add new steering repos to the installation again."); renderLayer(); };
 ACTS["nws-open"] = function () { var name = S.dialog.ws; closeDialog(); toast(name + " is ready. Workspaces other than Core platform are not in this mockup."); };
 
 /* ============================== MCP servers ==============================
@@ -925,16 +987,15 @@ VIEWS.servers = function () {
   if (S.empty && !S.imported.servers && S.importPr.servers) return { crumb: [["MCP servers"]], html: head + importPending("servers") };
   if (S.empty && !S.imported.servers) return { crumb: [["MCP servers"]], html: head + empty("servers", "No servers yet", "Import the servers already set up in Claude Code, Codex and Cursor on your machines. oxagen takes their keys and points every harness at one gateway.", '<button class="btn primary" data-act="serverimport">Import MCP servers</button>') };
   var rows = SERVERS.map(function (sv) {
-    var st = serverStats(sv.id), imp = sv.tools.filter(function (t) { return t.state !== "available"; }).length, ag = serverAgents(sv.id);
+    var st = serverStats(sv.id), imp = sv.tools.filter(function (t) { return t.state !== "available"; }).length;
     return '<tr class="click" data-go="servers|' + sv.id + '"><td><span class="srvc">' + serverMark(sv, 28) + '<span><b>' + h(sv.name) + '</b><span class="sub mono">' + h(folderOf(sv) || "Built in") + "</span></span></span></td>" +
       '<td class="mh">' + h(sourceLabel(sv)) + '</td><td class="num">' + (sv.source.type === "builtin" ? num(sv.tools.length) : num(imp) + " of " + num(sv.tools.length)) + (isSearch(sv) ? '<span class="sub">Search mode</span>' : "") + "</td>" +
-      '<td class="mh">' + (ag.length === AGENTS.length ? '<span class="muted">Every agent</span>' : ag.length ? '<span class="avs">' + ag.map(function (k) { return agentAv(agentBy(k), 22); }).join("") + "</span>" : '<span class="muted">None yet</span>') + "</td>" +
       '<td class="num mh">' + num(st.calls) + '</td><td class="num mh">' + money(st.cost) + '</td><td class="srvst">' + srvState(sv) + "</td></tr>";
   }).join("");
   var syncs = SERVERS.filter(function (sv) { return sv.syncPr && prBy(sv.syncPr) && prBy(sv.syncPr).state !== "merged"; });
   var syncB = syncs.length ? '<div class="banner"><div class="grow"><b>' + plural(syncs.length, "sync PR") + " waiting on review</b>" + syncs.map(function (sv) { return '<a href="' + href("steering", "pr-" + sv.syncPr) + '" data-go="steering|pr-' + sv.syncPr + '">#' + sv.syncPr + " " + h(sv.name) + "</a>"; }).join(", ") + ". The gateway serves the locked definitions until they merge.</div></div>" : "";
   return { crumb: [["MCP servers"]], html: head + deliveryStrip(F.SERVERS.targets, "Every harness points at " + F.SERVERS.gateway + ", which holds the keys and applies your policies.") + syncB +
-    '<div class="panel"><div class="tw"><table><thead><tr><th>Server</th><th class="mh">Source</th><th class="num">Tools imported</th><th class="mh">Agents</th><th class="num mh">Calls this month</th><th class="num mh">Cost</th><th>State</th></tr></thead><tbody>' + rows + "</tbody></table></div></div>" +
+    '<div class="panel"><div class="tw"><table><thead><tr><th>Server</th><th class="mh">Source</th><th class="num">Tools imported</th><th class="num mh">Calls this month</th><th class="num mh">Cost</th><th>State</th></tr></thead><tbody>' + rows + "</tbody></table></div></div>" +
     '<div class="panel pad rank"><div class="grow"><span class="k">Search ranking</span><b>' + h(embedLabel()) + '</b><span class="muted small">Ranks the tools of a server in search mode, from <code>workspace.toml</code>.</span></div><button class="btn sm" data-act="embeddings">Change</button></div>' +
     '<p class="muted small foot">A server\'s cost is what its tool definitions and results added to each model request.</p>' };
 };
@@ -990,7 +1051,7 @@ function toolsTab(sv) {
     var budget = sv.exposure.definition_budget, now = defsOf(sv, false), next = defsOf(sv, true), all = importedDefs(sv);
     if (isSearch(sv)) {
       summary = '<div class="panel pad tsum"><div class="grow"><b>Search mode</b><p class="small">Agents see three tools: <code>' + id + "__search</code>, <code>" + id + "__describe</code>, and <code>" + id + "__call</code>, about " + num(SEARCH_TOK) + " tokens a request. As direct tools, the " + plural(imp.length, "imported tool") + " would cost " + num(all) + " tokens, over the " + num(budget) + "-token budget.</p>" +
-        '<p class="small muted">A search returns up to 10 imported tools as one line each, and only tools in the agent\'s toolbelt. Policy decides <code>' + id + "__call</code> as the real tool. Ranking: " + h(embedLabel()) + ".</p></div></div>";
+        '<p class="small muted">A search returns up to 10 imported tools as one line each, and only tools the run may call. Policy decides <code>' + id + "__call</code> as the real tool. Ranking: " + h(embedLabel()) + ".</p></div></div>";
     } else {
       summary = '<div class="panel pad tsum"><div class="grow"><b>' + num(imp.length) + " of " + plural(tools.length, "tool") + ' imported</b><div class="meter"><div class="lab">Definitions per request<b>' + num(next) + " of " + num(budget) + ' tokens</b></div><div class="capbar' + (next > budget ? " over" : "") + '"><i style="width:' + Math.min(100, next / budget * 100).toFixed(1) + '%"></i></div></div>' +
         '<p class="small muted">' + (next !== now ? num(now) + " tokens now. The rest comes with your changes. " : "") + "Grey values are suggestions until a person confirms them." + (all > budget ? " The imported definitions pass the budget, so Studio suggests search mode." : "") + "</p></div></div>";
@@ -1140,7 +1201,7 @@ function connectionTab(sv) {
     (a.credential ? "<dt>Credential</dt><dd><code>" + h(a.credential) + "</code></dd>" : "") + "</dl>" +
     (a.mode !== "none" ? '<div class="field cred"><label for="cr-new">Replace the credential</label><input id="cr-new" type="password" placeholder="Paste a new secret"><div class="hint">It goes to oxagen\'s vault. A credential never reaches a steering PR or an agent\'s machine.</div></div><button class="btn sm" data-act="stub" data-what="Saving a credential">Save</button>' : "")) + "</div></div></div>";
   if (sv.environments) {
-    out += '<div class="panel"><div class="panel-h"><h3>Environments</h3><span class="sp muted">An agent uses the sandbox unless its definition names another environment for this server.</span></div><div class="tw"><table><thead><tr><th>Environment</th><th>URL</th><th>Network</th><th class="mh">Credential</th></tr></thead><tbody>' + sv.environments.map(function (e) {
+    out += '<div class="panel"><div class="panel-h"><h3>Environments</h3><span class="sp muted">An agent uses the sandbox unless its settings name another environment.</span></div><div class="tw"><table><thead><tr><th>Environment</th><th>URL</th><th>Network</th><th class="mh">Credential</th></tr></thead><tbody>' + sv.environments.map(function (e) {
       var r = relayOf(e.network);
       return "<tr><td><b>" + h(e.name) + "</b>" + (e.sandbox ? " " + badge("b-q", "Sandbox") : "") + '</td><td class="mono small">' + h(e.url || src.url || "") + "</td><td>" + (r ? "<code>" + h(e.network) + "</code> " + (r.r.state === "down" ? badge("b-failed", "Down", true) : badge("b-allowed", "Connected", true)) : "<code>cloud</code>") + '</td><td class="mh mono small">' + h(e.credential || a.credential || "") + "</td></tr>";
     }).join("") + "</tbody></table></div></div>";
@@ -1261,7 +1322,7 @@ ACTS["changes-pr"] = function (el) {
 /* ---- the server drawer: a summary, opened from an agent ---- */
 ACTS.server = function (el) { openDrawer("server", el.getAttribute("data-id")); };
 DRAWERS.server = function (id) {
-  var sv = serverBy(id), st = serverStats(id), ag = serverAgents(id), pend = S.pendingAgents;
+  var sv = serverBy(id), st = serverStats(id);
   var unused = st.unused.length && sv.source.type !== "builtin" ? '<div class="banner"><div class="grow"><b>' + plural(st.unused.length, "imported tool") + " not called this month</b>" + st.unused.map(function (t) { return "<code>" + h(t.n) + "</code>"; }).join(" ") + "<br>Their definitions add " + num(st.unusedTok) + " tokens to every request. Removing them would have saved about " + money(st.save) + " this month.</div><button class=\"btn sm\" data-act=\"tools-off\" data-id=\"" + id + '">Remove them</button></div>' : "";
   var tools = sv.tools.filter(function (t) { return t.state !== "available"; }).map(function (t) {
     var off = toolOffBy(id, t), rules = approvalFor(id, t);
@@ -1271,11 +1332,7 @@ DRAWERS.server = function (id) {
     head: '<div class="grow row">' + serverMark(sv, 34) + "<div><h2>" + h(sv.name) + '</h2><span class="muted mono">' + h(folderOf(sv) || "Built in") + "</span></div></div>",
     body: '<div class="grid g3 tiles">' + stat("Calls", num(st.calls), "this month") + stat("Cost", money(st.cost), "definitions and results") + stat("Definitions", num(st.defTok), "tokens in every request") + "</div>" + unused +
       '<h3 class="sec">Credential</h3><div class="keyc">' + g(sv.authKind === "key" ? "key" : "lock", 15) + "<div><b>" + h(sv.auth) + '</b><span class="muted">' + h(sv.keyNote) + "</span></div></div>" +
-      '<h3 class="sec">Agents that get it</h3><p class="muted small">Each agent\'s toolbelt is its <code>agents/&lt;slug&gt;.toml</code>. A change opens a steering PR.</p><div class="agpick">' + AGENTS.map(function (a) {
-        var p = pend[id + "." + a.key];
-        return '<label class="check"><input type="checkbox" data-change="srv-agent" data-id="' + id + '" data-a="' + a.key + '"' + ((ag.indexOf(a.key) >= 0) !== !!p ? " checked" : "") + (id === "oxagen" || p ? " disabled" : "") + '><span class="grow"><span class="n">' + h(a.name) + '</span><span class="d">' + (p ? "In steering PR #" + p : hxIcon(a.harness, 11) + " " + h(hxLabel(a.harness))) + "</span></span></label>";
-      }).join("") + "</div>" +
-      '<h3 class="sec">Imported tools</h3><p class="muted small">An approval comes from a policy reading the tool\'s classification.</p><div class="tw"><table class="narrow tools"><thead><tr><th>Tool</th><th class="num">Calls</th><th>Approval</th><th>State</th></tr></thead><tbody>' + tools + "</tbody></table></div>" +
+      '<h3 class="sec">Imported tools</h3><p class="muted small">Every agent in the workspace gets these, narrowed by policy. An approval comes from a policy reading the tool\'s classification.</p><div class="tw"><table class="narrow tools"><thead><tr><th>Tool</th><th class="num">Calls</th><th>Approval</th><th>State</th></tr></thead><tbody>' + tools + "</tbody></table></div>" +
       '<div class="dfoot"><button class="btn" data-act="close">Close</button>' + (sv.source.type === "builtin" ? "" : '<button class="btn primary" data-go="servers|' + id + '">Open the server</button>') + "</div>" };
 };
 ACTS["tools-off"] = function (el) {
@@ -1284,17 +1341,6 @@ ACTS["tools-off"] = function (el) {
   toast(plural(st.unused.length, "tool") + " staged to leave tools/servers/" + id + "/tools.toml. Review opens the steering PR.");
   renderLayer(); render();
 };
-ACTS["srv-agent"] = function (el) {
-  var id = el.getAttribute("data-id"), a = agentBy(el.getAttribute("data-a")), sv = serverBy(id), n = nextPrNumber(), give = el.checked;
-  S.pendingAgents[id + "." + a.key] = n;
-  S.newPrs.push({ n: n, kind: "agent", state: "open", title: (give ? "Give " + a.name + " the " : "Take the ") + sv.name + " tools" + (give ? "" : " from " + a.name), branch: "agents/" + a.key + "-" + id, by: ME, via: "web", opened: F.ORG.now, approvals: [],
-    summary: "Changes one toolbelt. " + a.name + " sees the change at its first session after this merges.",
-    files: [{ path: "agents/" + a.key + ".toml", diff: (give ? "+" : "-") + '  "' + id + '__*",' }],
-    checks: [{ id: "schema", r: "pass" }, { id: "references", r: "pass", note: "`" + id + "__*` matches " + plural(sv.tools.filter(function (t) { return t.state !== "available"; }).length, "imported tool") + "." }, { id: "owned", r: "pass" }] });
-  toast("Opened steering PR #" + n + " on agents/" + a.key + ".toml.");
-  renderLayer(); render();
-};
-
 /* ---- Search ranking: a workspace setting, changed by steering PR ---- */
 ACTS.embeddings = function () { openDialog("embeddings"); };
 DIALOGS.embeddings = function (arg, d) {

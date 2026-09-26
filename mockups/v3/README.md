@@ -24,7 +24,7 @@ Six navigation items, and no area has more than one row of tabs.
 |---|---|---|
 | Work | What is waiting, what is running, what is ready to review | `#/a-intel/core-platform/work` |
 | Sessions | What each agent did, replayed, and what it cost | `#/a-intel/core-platform/sessions`, `.../sessions/<id>` |
-| Agents | Who runs where, on which harness and model, and against which budget | `#/a-intel/core-platform/agents` |
+| Agents | Who operates each agent, where it runs, and on which harness and model | `#/a-intel/core-platform/agents` |
 | Steering | What every agent is told, what it costs, the steering PRs that change it, and the steering repo | `#/a-intel/core-platform/steering`, `.../steering/pr-<n>` |
 | MCP servers | Which servers every agent gets, which tools each imports, how each tool is classified, and where an approval comes from | `#/a-intel/core-platform/servers`, `.../servers/<name>` |
 | Spend | The month, grouped by work item, agent, person, model or MCP server | `#/a-intel/core-platform/spend` |
@@ -54,8 +54,11 @@ Sending a work item to an agent opens its new session, which starts replaying at
 
 `steering-repo-spec.html` is the source. Every workspace has one steering repo, `a-intel/oxagen-core-platform` here, and nothing steers until a steering PR merges.
 
-- **Creating a workspace.** The workspace switcher in the sidebar lists the workspaces and opens New workspace. It asks for a name only, then shows provisioning by step. The first attempt fails at Apply the settings, the way it does while the GitHub App lacks Administration write, so the failed step and Retry show.
-- **The steering repo card.** The top of Records shows the repository, the published version, and health. The Repository tab adds the settings oxagen holds, the linked code repositories, the organization records from `a-intel/oxagen`, governance, and the published versions.
+- **Creating a workspace.** The workspace switcher in the sidebar lists the workspaces and opens New workspace. It asks for a name only, then shows provisioning by step. The first attempt fails at Create the repository, the way it does when the organization owner whose token adds repositories to the installation has left. A workspace owner is told to ask an organization owner. An organization owner re-authorizes once, and Retry finishes.
+- **The steering repo card.** The top of Records shows the repository, the published version, and health. The Repository tab adds the settings oxagen holds, the linked code repositories, the organization records from `a-intel/oxagen`, governance, and the published versions. Governance shows the fields of `steering/governance.toml`: the mode, the reviewer groups, the always-on budget, memory, and the ledger.
+- **Records.** Applies to shows each record's targets from its frontmatter: repositories, tools, skills, and path globs. A record with none reaches every run. New record offers the same four, and a skill lands as `skills: [<lineage>]`. A record that targets a skill loads with it and stays out of the always-on block. No record targets an agent.
+- **Suggestions.** Open steering PR on a suggestion opens a record PR with `origin: inferred`. Steering changes only when it merges.
+- **Memories.** A session recalls up to five memories and 800 tokens. Memories are not in the always-on block.
 - **Health.** healthy, drifted, disconnected, or diverged. While it is not healthy, a banner on every page lists the differences. Repair settings shows for a workspace or organization admin, and Reconnect for an organization admin only. Every open steering PR fails its check.
 - **Steering PRs.** Each page shows the checks inside `Oxagen steering`, review by governance mode, the merge queue, and Revert on a merged one. #58 carries the budget check with per-record token counts, over oxagen's default of 4,000 tokens, which only warns.
 - **The memory PR.** #59 lists each memory with the sessions it came from. Drop takes one out.
@@ -66,6 +69,7 @@ Sending a work item to an agent opens its new session, which starts replaying at
 
 `mcp-studio-spec.html` is the source. Every server is one folder, `tools/servers/<name>/`, whatever its source. The app routes stay `.../servers/<name>`.
 
+- **Every agent** gets the workspace's imported tools, and policy narrows what it may call. No server is assigned to one agent.
 - **Add server** offers Connect by URL, From the registry, Local command, and From a definition (OpenAPI, GraphQL, or gRPC). Each ends in a discovery result that lists what the source offers, with a suggested classification in grey.
 - **Tools** lists available and imported tools with risk, side effect, egress, impacts, approval, and definition tokens, and a running total against the definition budget. A suggestion stays grey until a person confirms it. The tool panel shows the classification, the description with Draft, inputs, what the result returns, what the server says, and agent feedback.
 - **Approvals** come from policy. Each rule in `policy/*.cedar` reads the tool's classification, and the Approval column names the rule. The off switch acts at once, with no steering PR, and shows who turned it off and when. It replaces v3's Allow, Ask, and Off.
@@ -81,12 +85,12 @@ One rule prices every session (`src/ledger.js`). A model request re-reads everyt
 |---|---|
 | Model output | What the model wrote |
 | The harness's prompt and tools | Claude Code's, Codex's, Cursor's or stella's own system prompt and tool list |
-| Steering | The items delivered at session start, and each skill a session loaded |
+| Steering | The steering block for the session's code repository, the memories it recalled, and each skill it loaded with the records that target that skill |
 | An MCP server | The definitions of the tools it leaves on, and every result it returned |
 | Files and commands | Reads, edits and command output |
 | Conversation | The person's messages and the model's earlier replies |
 
-Because every figure is a sum of those, the numbers agree everywhere. A transcript's cost is the sum of its requests. Every Spend grouping sums to the month total to the cent, and the check fails if one does not. A steering item's cost is its share of each session's steering tokens, so the Steering list sums to the steering cost its header states. A server's cost is what its definitions and results added, which is why its drawer can price the tools that are on and never called.
+Because every figure is a sum of those, the numbers agree everywhere. A transcript's cost is the sum of its requests. Every Spend grouping sums to the month total to the cent, and the check fails if one does not. A record's cost is its share of each session's steering tokens, so the Steering list sums to the steering cost its header states. A server's cost is what its definitions and results added, which is why its drawer can price the tools that are on and never called.
 
 Cursor's model calls do not pass through the oxagen gateway, so a Cursor session says its cost is reported by Cursor. The gateway meters the rest.
 
@@ -98,7 +102,7 @@ v3 uses the brief's words where rev1's glossary (`docs/fleet-operations-ia.md`, 
 |---|---|---|
 | session | run | Claude Code, Codex, Cursor and stella all call it a session, and so does the brief |
 | MCP server | provider | The brief asks for "your mcp servers in one place", and every harness config calls them MCP servers |
-| steering record, steering PR | steering item, proposal | The steering repo spec and #4325. The replay's margin still says "steering item", which the headless walk asserts |
+| steering record, steering PR | steering item, proposal | The steering repo spec and #4325 |
 
 Everything else follows rev1: oxagen and stella in lowercase, work item, no "task" in product copy, and no person scored or ranked.
 
@@ -119,7 +123,7 @@ Nothing below is deleted. Every rev1 view is still in the master, specified in `
 | Repositories | The Changes panel of a session, and the work item |
 | Organization, roles, API keys, billing, audit | The account menu, not in this mockup |
 | The tier ladder | One line under each session's cost: metered by the gateway, or reported by the harness |
-| Budgets, optimization and operator habits | Budgets on agent cards, the unused-tool saving on each server, and suggestions with their cost |
+| Budgets, optimization and operator habits | The cost cap on Send, the unused-tool saving on each server, and suggestions with their cost |
 | The stella drawer and notifications | Left out. rev1 keeps the in-app agent by the maintainer's decision of 2026-09-14 |
 
 One rev1 cut comes back. The wedge of 2026-09-24 removed the transcript playback (`docs/fleet-operations-wedge.md`, D14). v3 restores it because the brief calls it very important.
@@ -144,7 +148,7 @@ A route's own query pins a screen or a state, so each has a Storybook story:
 |---|---|
 | `tab=` | A tab: `records`, `prs` or `repo` in Steering, and `tools`, `connection`, `try` or `changes` on a server |
 | `health=` | The steering repo's health: `healthy`, `drifted`, `disconnected` or `diverged` |
-| `as=` | Who is viewing, such as `amara`, a member who cannot repair settings |
+| `as=` | Who is viewing, such as `amara`, a member who cannot repair settings, or `priya`, an organization owner who can re-authorize provisioning |
 | `dialog=` | A dialog: `newworkspace` (with `prov=failed` or `prov=done`), `linkrepo`, `addserver` (with `src=`, `fmt=`, `pick=` and `phase=result`), `embeddings` |
 | `tool=` | The tool panel on a server page |
 | `run=1` | A Try it result |
