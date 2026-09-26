@@ -155,7 +155,7 @@ jobs:
             await page.click('[data-act="nws-go"]');
             await page.waitForSelector('[data-act="nws-retry"]', { timeout: 15000 });
             ok(/Ask an organization owner, such as Priya Natarajan/.test(await page.innerText(".dlg")) && !(await page.$('[data-act="nws-reauth"]')), "provision: a workspace owner is offered Re-authorize, or is not told whom to ask");
-            await open(page, "work?dialog=newworkspace", "&as=priya&theme=dark");
+            await open(page, "work?dialog=newworkspace&as=priya", "&theme=dark");
             ok((await page.$$(".dlg input")).length === 1, "provision: the first step asks for more than a name");
             await page.fill("#nws-name", "Payments ops");
             await page.click('[data-act="nws-go"]');
@@ -266,7 +266,7 @@ jobs:
           await flow("skill target", async () => {
             await open(page, "steering", "&theme=dark");
             await page.click('[data-act="newsteer"]');
-            await page.fill("#ns-text", "Name the line, the problem, and the fix in each review comment.");
+            await page.fill("#ns-text", "Name the line, the problem, and the fix in each comment.");
             await page.check('input[name="ns-skill"][value="a-intel.platform.code-reviewer"]');
             await page.click('[data-act="newsteer-go"]');
             await waitPr();
